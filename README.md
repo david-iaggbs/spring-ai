@@ -1,81 +1,40 @@
 # From Java Dev to AI Engineer: Spring AI Fast Track
 
-## 🌱 Spring AI Course – Resources & Reference Links
+A personal learning path for **Spring AI**, organized as one branch per lesson. Each branch builds on the previous one and contains a single self-contained Spring Boot project.
 
-Welcome to the official GitHub repository for the **Spring AI Course**. This course helps you build intelligent applications using the Spring AI framework and integrate powerful LLMs like OpenAI into your Spring Boot apps.
-
-Below are some carefully curated reference links and tools used throughout the course. Bookmark this information for quick access during development and exploration.
+> 👉 **You are on the `section01` branch.** First Spring AI lesson — a Spring Boot app that chats with a **local LLM via [Ollama](https://ollama.com)** through Spring AI's `ChatClient`.
 
 ---
 
-## 📘 Official Documentation
+## 🧭 Solution Structure
 
-- **[Spring AI Official Documentation](https://docs.spring.io/spring-ai/reference/index.html)**  
-  The core reference for understanding Spring AI modules, configuration, and supported AI providers.
+The repository uses **one branch per lesson**. Each branch contains a single Maven project under `sectionNN/<project>/` so the diff between branches shows exactly what each lesson introduces. Switch lessons with `git checkout <branch>`.
 
-- **[OpenAI Platform Docs](https://platform.openai.com/docs/overview)**  
-  Learn how to use OpenAI's APIs including ChatGPT, GPT-4, embeddings, and more.
+### This branch — `section01`
 
----
+**Purpose**: introduce Spring AI's `ChatClient` against a **local Ollama** backend. The app exposes `GET /api/chat?message=...` and forwards the message to a locally hosted LLM, returning the response as plain text.
 
-## 🤖 AI Providers & Runtimes
+**What it adds on top of the [`section0`](https://github.com/david-iaggbs/spring-ai/tree/section0) baseline**:
+- `spring-ai-bom` + `spring-ai-starter-model-ollama` dependencies.
+- `spring.ai.model.chat=ollama` and `spring.ai.ollama.chat.options.model=llama3.2:1b` in `application.properties`.
+- Replaces the baseline `HelloController` with a `ChatController` that injects `ChatClient.Builder`.
+- Adds a Testcontainers-based end-to-end test (`ChatControllerOllamaIT`) gated behind a Maven `e2e` profile, plus the Testcontainers dependencies (`spring-boot-testcontainers`, `spring-ai-spring-boot-testcontainers`, `testcontainers:ollama`, `junit-jupiter`).
 
-- **[Ollama](https://ollama.com)**  
-  Run open-source large language models (LLMs) locally on your machine with simple commands.
+Run `git diff section0 section01` to see exactly what this lesson costs in code, config and dependencies.
 
-- **[AWS Bedrock](https://aws.amazon.com/bedrock/)**  
-  Access foundation models from various providers via a fully managed AWS service.
+### Conventions shared across all branches
 
-- **[Docker Desktop](https://www.docker.com/products/docker-desktop/)**  
-  Essential for running local AI model runtimes and Docker Compose setups used in the course.
-
-- **[Docker Model Runner](https://docs.docker.com/ai/model-runner/)**  
-  Use Docker’s official tool for running and managing AI models locally.
-
----
-
-## 📚 Foundational Papers & Tools
-
-- **[Attention Is All You Need (Transformer Paper)](https://arxiv.org/abs/1706.03762)**  
-  The seminal research paper that introduced the Transformer architecture behind modern LLMs.
-
-- **[OpenAI Tokenizer Tool](https://platform.openai.com/tokenizer)**  
-  Visualize how OpenAI tokenizes input prompts and estimate token usage.
-
----
-
-## 📦 Vector Store & MCP
-
-- **[Qdrant Vector Database](https://qdrant.tech)**  
-  An open-source vector store used in Retrieval-Augmented Generation (RAG) demos with Spring AI.
-
-- **[Model Context Protocol (MCP)](https://modelcontextprotocol.io/)**  
-  A protocol for connecting AI clients and servers in a decoupled and extensible way.
-
----
-
-## 📊 Observability & Monitoring Tools
-
-- **[Prometheus](https://prometheus.io/)**  
-  Monitoring and alerting toolkit for collecting Spring Boot and AI app metrics.
-
-- **[Micrometer](https://micrometer.io/)**  
-  Java metrics collection library used with Spring Boot to expose observability data.
-
-- **[OpenTelemetry](https://opentelemetry.io/)**  
-  Industry-standard framework for distributed tracing and telemetry data.
-
-- **[Grafana](https://grafana.com/)**  
-  Visualization tool for creating dashboards from Prometheus and other data sources.
-
-- **[Jaeger Tracing](https://www.jaegertracing.io/)**  
-  Distributed tracing platform used to trace and monitor AI request flows.
+- **Build tool**: Maven Wrapper (`./mvnw`) — no global Maven install required.
+- **Java**: 21+ (`<java.version>21</java.version>` in every `pom.xml`).
+- **Spring Boot**: 3.5.x.
+- **Package root**: `com.eazybytes.<project>` (e.g. `com.eazybytes.ollama`).
+- **REST base path**: `/api` (class-level `@RequestMapping("/api")`), with one endpoint per lesson.
+- **Default port**: `8080` (override with `--server.port=<port>` at runtime).
+- **Tests**: at minimum a `@SpringBootTest` context-load test plus a `@WebMvcTest` slice test for the controller. Lessons that introduce external services add an `@Tag("e2e")` Testcontainers IT, gated behind an `e2e` Maven profile.
 
 ---
 
 ## 🚀 How to Run (section01/ollama)
-
-This branch is focused on the first lesson: a minimal Spring Boot app that chats with a local LLM via [Ollama](https://ollama.com).
 
 ### Prerequisites
 
