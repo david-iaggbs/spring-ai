@@ -1,112 +1,119 @@
 # From Java Dev to AI Engineer: Spring AI Fast Track
 
-## 🌱 Spring AI Course – Resources & Reference Links
+A personal learning path for **Spring AI**, organized as one branch per lesson. Each branch builds on the previous one and contains a single self-contained Spring Boot project.
 
-Welcome to the official GitHub repository for the **Spring AI Course**. This course helps you build intelligent applications using the Spring AI framework and integrate powerful LLMs like OpenAI into your Spring Boot apps.
-
-Below are some carefully curated reference links and tools used throughout the course. Bookmark this information for quick access during development and exploration.
+> 👉 **You are on the `section0` branch — the baseline.** Plain Spring Boot web service, **no Spring AI**, **no LLM**, **no external infrastructure**. Every later branch layers one capability on top of this same shape.
 
 ---
 
-## 📘 Official Documentation
+## 🧭 Solution Structure
 
-- **[Spring AI Official Documentation](https://docs.spring.io/spring-ai/reference/index.html)**  
-  The core reference for understanding Spring AI modules, configuration, and supported AI providers.
+The repository uses **one branch per lesson**. Each branch contains a single Maven project under `sectionNN/<project>/` so the diff between branches shows exactly what each lesson introduces. Switch lessons with `git checkout <branch>`.
 
-- **[OpenAI Platform Docs](https://platform.openai.com/docs/overview)**  
-  Learn how to use OpenAI's APIs including ChatGPT, GPT-4, embeddings, and more.
+### This branch — `section0`
 
----
+**Purpose**: the **baseline** every later lesson builds on. A plain Spring Boot 3.5 web service with a single `GET /api/hello` endpoint returning `"Hello, World!"`. **No Spring AI, no LLM, no external infrastructure** — just a working REST controller, a context-load test, and a WebMvc slice test.
 
-## 🤖 AI Providers & Runtimes
+Think of it as the empty canvas: when you `git diff section0 section01`, you'll see exactly what adding the first Spring AI capability costs (dependencies, config, code, tests).
 
-- **[Ollama](https://ollama.com)**  
-  Run open-source large language models (LLMs) locally on your machine with simple commands.
+### Conventions shared across all branches
 
-- **[AWS Bedrock](https://aws.amazon.com/bedrock/)**  
-  Access foundation models from various providers via a fully managed AWS service.
-
-- **[Docker Desktop](https://www.docker.com/products/docker-desktop/)**  
-  Essential for running local AI model runtimes and Docker Compose setups used in the course.
-
-- **[Docker Model Runner](https://docs.docker.com/ai/model-runner/)**  
-  Use Docker’s official tool for running and managing AI models locally.
-
----
-
-## 📚 Foundational Papers & Tools
-
-- **[Attention Is All You Need (Transformer Paper)](https://arxiv.org/abs/1706.03762)**  
-  The seminal research paper that introduced the Transformer architecture behind modern LLMs.
-
-- **[OpenAI Tokenizer Tool](https://platform.openai.com/tokenizer)**  
-  Visualize how OpenAI tokenizes input prompts and estimate token usage.
-
----
-
-## 📦 Vector Store & MCP
-
-- **[Qdrant Vector Database](https://qdrant.tech)**  
-  An open-source vector store used in Retrieval-Augmented Generation (RAG) demos with Spring AI.
-
-- **[Model Context Protocol (MCP)](https://modelcontextprotocol.io/)**  
-  A protocol for connecting AI clients and servers in a decoupled and extensible way.
-
----
-
-## 📊 Observability & Monitoring Tools
-
-- **[Prometheus](https://prometheus.io/)**  
-  Monitoring and alerting toolkit for collecting Spring Boot and AI app metrics.
-
-- **[Micrometer](https://micrometer.io/)**  
-  Java metrics collection library used with Spring Boot to expose observability data.
-
-- **[OpenTelemetry](https://opentelemetry.io/)**  
-  Industry-standard framework for distributed tracing and telemetry data.
-
-- **[Grafana](https://grafana.com/)**  
-  Visualization tool for creating dashboards from Prometheus and other data sources.
-
-- **[Jaeger Tracing](https://www.jaegertracing.io/)**  
-  Distributed tracing platform used to trace and monitor AI request flows.
+- **Build tool**: Maven Wrapper (`./mvnw`) — no global Maven install required.
+- **Java**: 21+ (`<java.version>21</java.version>` in every `pom.xml`).
+- **Spring Boot**: 3.5.x.
+- **Package root**: `com.eazybytes.<project>` (e.g. `com.eazybytes.hello`).
+- **REST base path**: `/api` (class-level `@RequestMapping("/api")`), with one endpoint per lesson.
+- **Default port**: `8080` (override with `--server.port=<port>` at runtime).
+- **Tests**: at minimum a `@SpringBootTest` context-load test plus a `@WebMvcTest` slice test for the controller. Lessons that introduce external services add an `@Tag("e2e")` Testcontainers IT, gated behind an `e2e` Maven profile.
 
 ---
 
 ## 🚀 How to Run (section0/hello)
 
-This branch is the **baseline** — a plain Spring Boot web service with a single `GET /api/hello` endpoint that returns `Hello, World!`. No Spring AI, no Ollama, no external infrastructure. It exists as the starting point you compare every later section against: each subsequent branch (`section01`, `section02`, …) adds one Spring AI capability on top of this same shape.
+A plain Spring Boot 3.5 web service that exposes a single endpoint:
+
+```
+GET http://localhost:8080/api/hello   →   200 OK  "Hello, World!"
+```
+
+That's the whole app. There is no Spring AI, no LLM, no Docker, no API keys.
+
+### Project layout
+
+```
+section0/hello/
+├── pom.xml
+├── mvnw / mvnw.cmd / .mvn/
+└── src/
+    ├── main/
+    │   ├── java/com/eazybytes/hello/
+    │   │   ├── HelloApplication.java          # @SpringBootApplication entry point
+    │   │   └── controller/HelloController.java # GET /api/hello
+    │   └── resources/application.properties   # app name + log pattern
+    └── test/java/com/eazybytes/hello/
+        ├── HelloApplicationTests.java          # @SpringBootTest context loads
+        └── controller/HelloControllerTest.java # @WebMvcTest slice test
+```
 
 ### Prerequisites
 
 | Tool | Why | Notes |
 |------|-----|-------|
-| **JDK 21+** | Spring Boot 3.5 requires Java 21 (`<java.version>21</java.version>`) | Temurin / Zulu / Oracle |
-| **Maven Wrapper** | Builds and runs the app | Ships with the project (`./mvnw`) — no global install needed |
+| **JDK 21+** | Spring Boot 3.5 requires Java 21 (set as `<java.version>21</java.version>` in `pom.xml`) | Temurin / Zulu / Amazon Corretto. Check with `java -version`. |
+| **Maven Wrapper** | Builds and runs the app | Ships with the project (`./mvnw`) — no global Maven install needed |
 
-That's it. No Docker, no Podman, no API keys, no models — everything runs from the JVM.
+> If your default `java` is older than 21 (e.g. JDK 17), point Maven at a 21+ JDK for this shell session — for example: `export JAVA_HOME=/Library/Java/JavaVirtualMachines/amazon-corretto-25.jdk/Contents/Home`. On macOS you can list installed JDKs with `/usr/libexec/java_home -V`.
 
-### 1. Start the Spring Boot app
+### 1. (Optional) Build and run the tests
+
+```bash
+cd section0/hello
+./mvnw clean verify
+```
+
+This compiles the code, runs both tests (~2 s), and produces a runnable JAR at `target/hello-0.0.1-SNAPSHOT.jar`. Skip this step if you just want to start the app.
+
+### 2. Start the app
+
+Pick **one** of the two equivalent ways:
+
+**A. Via the Spring Boot Maven plugin** (best for development — hot reload via `spring-boot-devtools`):
 
 ```bash
 cd section0/hello
 ./mvnw spring-boot:run
 ```
 
-The app starts on `http://localhost:8080`.
+**B. As an executable JAR** (closer to production):
 
-### 2. Call the endpoint
+```bash
+cd section0/hello
+./mvnw clean package -DskipTests
+java -jar target/hello-0.0.1-SNAPSHOT.jar
+```
 
-The app exposes a single endpoint:
+Either way, look for this line in the console — that's the signal the app is ready:
+
+```
+... INFO  [main] o.s.b.w.embedded.tomcat.TomcatWebServer - Tomcat started on port 8080 (http) ...
+... INFO  [main] c.e.h.HelloApplication                   - Started HelloApplication in 0.8 seconds (process running for 1.1)
+```
+
+The app listens on `http://localhost:8080`.
+
+To **stop** it, press `Ctrl+C` in the terminal where it's running.
+
+### 3. Call the endpoint
 
 | Method | URL | Query params | Response |
 |--------|-----|--------------|----------|
 | `GET`  | `http://localhost:8080/api/hello` | none | `text/plain` — `Hello, World!` |
 
-**With curl:**
+**With curl** (add `-i` to also see headers):
 
 ```bash
-curl http://localhost:8080/api/hello
+$ curl http://localhost:8080/api/hello
+Hello, World!
 ```
 
 **With httpie:**
@@ -117,18 +124,33 @@ http :8080/api/hello
 
 **In a browser:** open <http://localhost:8080/api/hello>
 
-> Endpoint defined in `section0/hello/src/main/java/com/eazybytes/hello/controller/HelloController.java`. Port `8080` is the Spring Boot default — override with `--server.port=9090` if it conflicts.
+> Endpoint defined in `section0/hello/src/main/java/com/eazybytes/hello/controller/HelloController.java`. The base path `/api` comes from the class-level `@RequestMapping`; the `/hello` segment from the method-level `@GetMapping`.
 
-### Running the tests
-
-A WebMvc slice test of the controller plus a context-load test. No infrastructure needed.
+### Running just the tests
 
 ```bash
 cd section0/hello
 ./mvnw test
 ```
 
-Runs in ~2 s. Safe in CI as-is.
+Runs the WebMvc slice test (`HelloControllerTest`) and the context-load test (`HelloApplicationTests`) — ~2 s, no infrastructure required, safe in CI.
+
+### Troubleshooting
+
+| Symptom | Likely cause / fix |
+|---------|--------------------|
+| `release version 21 not supported` during `./mvnw` | Maven is using a pre-21 JDK. Set `JAVA_HOME` to a 21+ JDK (see the note under Prerequisites). |
+| `Port 8080 was already in use` on startup | Another process is on that port. Either stop it (`lsof -i :8080`) or run on a different port: `./mvnw spring-boot:run -Dspring-boot.run.arguments=--server.port=9090` (or `java -jar target/hello-0.0.1-SNAPSHOT.jar --server.port=9090`). |
+| `curl` returns nothing / connection refused | The app hasn't finished starting yet — wait for the `Started HelloApplication` log line. |
+| `./mvnw: Permission denied` | Make the wrapper executable: `chmod +x mvnw`. |
+
+### What's next
+
+Switch to `section01` to add the first Spring AI integration on top of this same shape — a `ChatClient`-driven `/api/chat` endpoint backed by a local Ollama model:
+
+```bash
+git checkout section01
+```
 
 ---
 
