@@ -1,13 +1,13 @@
-package com.eazybytes.ollama;
+package com.eazybytes.hello;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
-public class OllamaApplication {
+public class HelloApplication {
 
 	public static void main(String[] args) {
-		SpringApplication.run(OllamaApplication.class, args);
+		SpringApplication.run(HelloApplication.class, args);
 	}
 
 }
