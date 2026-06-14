@@ -2,7 +2,7 @@
 
 A personal learning path for **Spring AI**, organized as one branch per lesson. Each branch builds on the previous one and contains a single self-contained Spring Boot project.
 
-> 👉 **You are on the `section2.7` branch.** Eighth lesson of *Spring AI Essentials*: **Streaming Responses** — instead of waiting for the full reply, push tokens to the client as they arrive. `ChatClient.prompt()…stream().content()` returns a `Flux<String>`, and Spring MVC turns it into a chunked **`text/event-stream`** response. Built on top of [`section2.6`](https://github.com/david-iaggbs/spring-ai/tree/section2.6) and still running entirely on a **local LLM via [Ollama](https://ollama.com)**.
+> 👉 **You are on the `section2.8` branch.** Ninth lesson of *Spring AI Essentials*: **Structured Output** — stop parsing free-form text. `ChatClient.call().entity(...)` and friends coerce the LLM's reply into a typed Java object (`Bean`, `List<String>`, `Map`, `List<POJO>`) by appending JSON-schema or list-format instructions to the prompt and deserializing the response automatically. Built on top of [`section2.7`](https://github.com/david-iaggbs/spring-ai/tree/section2.7) and still running entirely on a **local LLM via [Ollama](https://ollama.com)**. This is the **final branch** of the *Spring AI Essentials* learning path.
 
 ---
 
@@ -23,21 +23,31 @@ The "Spring AI Essentials" course section is split into incremental sub-branches
 | `section2.4` | Built-in Advisors — `SimpleLoggerAdvisor` via `defaultAdvisors(...)` |
 | `section2.5` | Custom Advisors — `TokenUsageAuditAdvisor` implementing `CallAdvisor` |
 | `section2.6` | ChatOptions — global `defaultOptions(...)` + per-call `OllamaOptions` override |
-| **`section2.7`** *(you are here)* | **Streaming Responses** — `Flux<String>` over `text/event-stream` |
-| `section2.8` | Structured Output (Bean / List / Map / `ParameterizedTypeReference`) |
+| `section2.7` | Streaming Responses — `Flux<String>` over `text/event-stream` |
+| **`section2.8`** *(you are here)* | **Structured Output** — `entity(Class)`, `ListOutputConverter`, `MapOutputConverter`, `ParameterizedTypeReference` |
 
-### This branch — `section2.7`
+### This branch — `section2.8`
 
-**Purpose**: introduce **Streaming Responses**. So far every endpoint used `.call()` and blocked until the model finished. This branch adds a new endpoint that uses `.stream().content()` to return a Reactor `Flux<String>` — Spring MVC negotiates `text/event-stream` and forwards each token to the client as it lands. Watching `curl -N` against `/api/stream` shows tokens appearing in real time, just like the typewriter effect of consumer chatbots.
+**Purpose**: introduce **Structured Output**. So far every endpoint returned plain text. This branch adds a controller that calls `.entity(...)` on `ChatClient`, telling Spring AI which Java type the response should be deserialized into. Spring AI appends format instructions to the prompt (a JSON schema for `Bean` / `List<POJO>`, a comma-separated-list instruction for `ListOutputConverter`, a generic JSON object instruction for `MapOutputConverter`), then runs the LLM's reply through Jackson to populate the target type.
 
-**What it adds on top of the [`section2.6`](https://github.com/david-iaggbs/spring-ai/tree/section2.6) baseline**:
-- New `StreamController` exposing `GET /api/stream?message=…`, declared with `produces = MediaType.TEXT_EVENT_STREAM_VALUE` so Spring MVC streams each emission as an SSE event. It injects the singleton `ChatClient` and returns `chatClient.prompt().user(message).stream().content()` — defaults (system prompt, advisors, options) all flow through unchanged.
+**What it adds on top of the [`section2.7`](https://github.com/david-iaggbs/spring-ai/tree/section2.7) baseline**:
+- New record `model/CountryCities.java` (`country`, `cities`) used as the target POJO.
+- New `StructuredOutPutController` exposing four endpoints:
+
+  | Endpoint | Converter | Returns |
+  |----------|-----------|---------|
+  | `GET /api/chat-bean`      | `entity(CountryCities.class)`                                     | a single POJO |
+  | `GET /api/chat-list`      | `entity(LIST_CONVERTER)` (`ListOutputConverter`)                  | a `List<String>` |
+  | `GET /api/chat-map`       | `entity(MAP_CONVERTER)` (`MapOutputConverter`)                    | a `Map<String,Object>` |
+  | `GET /api/chat-bean-list` | `entity(COUNTRY_CITIES_LIST_TYPE)` (`ParameterizedTypeReference`) | a `List<CountryCities>` |
+
+  The controller injects the singleton `ChatClient` from `ChatClientConfig` but **overrides the HR default system prompt** with `NEUTRAL_SYSTEM_PROMPT` per call, so off-topic schema-shaped requests aren't refused. Converters are exposed as `static final` constants so tests can reference the exact same instance.
 - Tests:
-  - **Unit** — `StreamControllerTest` (`@WebMvcTest`) stubs the `.stream().content()` chain to a `Flux.just("Sure", ", ", "you have ", "20 days.")`, then exercises the endpoint via `request().asyncStarted()` + `asyncDispatch(...)` to verify each chunk lands in the response body.
-  - **Integration** — `StreamControllerIntegrationTest` (`@SpringBootTest`) repeats the pattern with the full context loaded.
-  - **E2E** — `StreamControllerOllamaIT` boots an Ollama Testcontainer, lets the real model stream a real reply, and asserts the dispatched response is non-empty (i.e. ≥1 chunk arrived and the stream terminated cleanly).
+  - **Unit** — `StructuredOutPutControllerTest` stubs each of the four `.entity(...)` overloads on a deep-stub `ChatClient` and asserts the JSON response shape.
+  - **Integration** — `StructuredOutPutControllerIntegrationTest` repeats the pattern with the full context loaded and adds a `verify(...).entity(<same converter instance>)` to lock in the converter wiring per endpoint.
+  - **E2E** — `StructuredOutPutControllerOllamaIT` runs the four endpoints against the Ollama Testcontainer and asserts `200 OK` — a successful response proves Spring AI was able to deserialize the model's reply into the requested Java type, which is the lesson here. The `List<POJO>` case is `@Disabled` because a 1 B-parameter model does not reliably emit a top-level JSON array of objects; bump the model to e.g. `llama3.1:8b` to re-enable.
 
-Run `git diff section2.6 section2.7` to see exactly what this lesson costs in code, config and tests.
+Run `git diff section2.7 section2.8` to see exactly what this lesson costs in code, config and tests.
 
 ### Conventions shared across all branches
 
@@ -102,7 +112,7 @@ The app starts on `http://localhost:8080`.
 
 ### 3. Send a chat request
 
-The app exposes four endpoints:
+The app exposes eight endpoints:
 
 | Method | URL | Query params | Response |
 |--------|-----|-------------|----------|
@@ -110,6 +120,10 @@ The app exposes four endpoints:
 | `GET`  | `http://localhost:8080/api/email`            | `customerName`, `customerMessage` (both required) | `text/plain` — a customer-service email draft, rendered from `userPromptTemplate.st` |
 | `GET`  | `http://localhost:8080/api/prompt-stuffing`  | `message` (required) | `text/plain` — answer grounded in the EazyBytes-Tech FAQ stuffed into `systemPromptTemplate.st` |
 | `GET`  | `http://localhost:8080/api/stream`           | `message` (required) | `text/event-stream` — tokens streamed live as the model generates them |
+| `GET`  | `http://localhost:8080/api/chat-bean`        | `message` (required) | `application/json` — a single `CountryCities` POJO |
+| `GET`  | `http://localhost:8080/api/chat-list`        | `message` (required) | `application/json` — a `List<String>` |
+| `GET`  | `http://localhost:8080/api/chat-map`         | `message` (required) | `application/json` — a `Map<String,Object>` |
+| `GET`  | `http://localhost:8080/api/chat-bean-list`   | `message` (required) | `application/json` — a `List<CountryCities>` |
 
 **With curl:**
 
@@ -125,6 +139,11 @@ curl "http://localhost:8080/api/prompt-stuffing?message=What%20is%20your%20refun
 
 # Section 2.7 — watch tokens stream in real time (-N disables curl output buffering).
 curl -N "http://localhost:8080/api/stream?message=Tell%20me%20about%20parental%20leave"
+
+# Section 2.8 — structured output: get a typed JSON object back.
+curl "http://localhost:8080/api/chat-bean?message=Tell%20me%20the%20country%20France%20and%20three%20of%20its%20largest%20cities."
+curl "http://localhost:8080/api/chat-list?message=List%20three%20primary%20colours."
+curl "http://localhost:8080/api/chat-map?message=Give%20me%20an%20object%20with%20'country'%20and%20'capital'%20for%20France."
 ```
 
 **With Postman:** import `SpringAI.postman_collection.json` from the repo root.
