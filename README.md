@@ -2,7 +2,7 @@
 
 A personal learning path for **Spring AI**, organized as one branch per lesson. Each branch builds on the previous one and contains a single self-contained Spring Boot project.
 
-> 👉 **You are on the `section2.1` branch.** Second lesson of *Spring AI Essentials*: **Spring AI Defaults** — move the repeated `system`/`user` prompts out of the controller and onto the `ChatClient.Builder` via `defaultSystem(...)` / `defaultUser(...)`. The controller shrinks to just `chatClient.prompt().user(message)…`. Built on top of [`section2.0`](https://github.com/david-iaggbs/spring-ai/tree/section2.0) and still running entirely on a **local LLM via [Ollama](https://ollama.com)**.
+> 👉 **You are on the `section2.2` branch.** Third lesson of *Spring AI Essentials*: **Prompt Templates** — move the user-facing prompt into an external `.st` file with `{placeholders}`, and bind values at request time via Spring AI's `PromptUserSpec.text(Resource).param(name, value)`. Built on top of [`section2.1`](https://github.com/david-iaggbs/spring-ai/tree/section2.1) and still running entirely on a **local LLM via [Ollama](https://ollama.com)**.
 
 ---
 
@@ -17,8 +17,8 @@ The "Spring AI Essentials" course section is split into incremental sub-branches
 | Branch | Concept |
 |--------|---------|
 | `section2.0` | Message Roles — `system` vs `user` |
-| **`section2.1`** *(you are here)* | **Spring AI Defaults** — `defaultSystem`, `defaultUser` |
-| `section2.2` | Prompt Templates (`.st` files) |
+| `section2.1` | Spring AI Defaults — `defaultSystem`, `defaultUser` |
+| **`section2.2`** *(you are here)* | **Prompt Templates** — external `.st` files, `param(...)` binding |
 | `section2.3` | Prompt Stuffing |
 | `section2.4` | Built-in Advisors (`SimpleLoggerAdvisor`) |
 | `section2.5` | Custom Advisors (`TokenUsageAuditAdvisor`) |
@@ -26,19 +26,20 @@ The "Spring AI Essentials" course section is split into incremental sub-branches
 | `section2.7` | Streaming Responses (`Flux<String>`) |
 | `section2.8` | Structured Output (Bean / List / Map / `ParameterizedTypeReference`) |
 
-### This branch — `section2.1`
+### This branch — `section2.2`
 
-**Purpose**: introduce **Spring AI Defaults**. Instead of every controller hard-coding the same `system` prompt, the assistant persona is configured **once** on a `ChatClient` `@Bean` and reused everywhere. The `ChatController` drops the inline `.system(...)` from `section2.0` and only contributes the per-request `user(message)`.
+**Purpose**: introduce **Prompt Templates**. Long, parameterised user prompts no longer live as Java string literals — they sit in `.st` files under `src/main/resources/promptTemplates/` and get bound at request time via `PromptUserSpec.text(Resource).param("name", value)`. This branch also demonstrates **overriding** a default system prompt at the call site (we still default to the HR assistant from section2.1, but `/api/email` swaps in a customer-service persona).
 
-**What it adds on top of the [`section2.0`](https://github.com/david-iaggbs/spring-ai/tree/section2.0) baseline**:
-- New `config/ChatClientConfig.java` exposing a singleton `ChatClient` `@Bean` built from the auto-configured `ChatClient.Builder` with `defaultSystem(HR_ASSISTANT_SYSTEM_PROMPT)` + `defaultUser(DEFAULT_USER_MESSAGE)`. The persona switches from *IT helpdesk* (section2.0) to *HR assistant* — easier to demo "defaults are central, swap them in one place."
-- `ChatController` now injects the `ChatClient` bean directly (singleton, not built from the builder at construction time) and shrinks to `chatClient.prompt().user(message).call().content()`.
-- Tests adapt to the new wiring:
-  - **Unit** — `@MockitoBean ChatClient` (singleton bean → trivially mockable, no more deep-stub builder chain).
-  - **Integration** — extra assertion that `ChatClientConfig` calls `defaultSystem(HR_ASSISTANT_SYSTEM_PROMPT)` and `defaultUser(DEFAULT_USER_MESSAGE)` on the builder during bean creation.
-  - **E2E** — real HR-scope question (`"How many vacation days do I get?"`) against the Ollama Testcontainer.
+**What it adds on top of the [`section2.1`](https://github.com/david-iaggbs/spring-ai/tree/section2.1) baseline**:
+- New template `src/main/resources/promptTemplates/userPromptTemplate.st` with `{customerName}` + `{customerMessage}` placeholders.
+- New `PromptTemplateController` exposing `GET /api/email?customerName=…&customerMessage=…`. It injects the singleton `ChatClient` from `ChatClientConfig`, overrides the default system prompt with a customer-service one, and binds the template params with a `Consumer<PromptUserSpec>` lambda.
+- The original `ChatController` from `section2.1` is unchanged — its `/api/chat` endpoint still uses the HR defaults.
+- Tests for the new endpoint:
+  - **Unit** — `@WebMvcTest(PromptTemplateController.class)` with `@MockitoBean(answers = RETURNS_DEEP_STUBS) ChatClient`.
+  - **Integration** — full context + `ArgumentCaptor` capturing the `Consumer<PromptUserSpec>` lambda; the captured lambda is replayed against a `RETURNS_SELF` mock spec to verify `text(Resource)` + both `param(...)` calls actually happen with the request values.
+  - **E2E** — Ollama Testcontainer call to `/api/email`, asserting a non-empty body.
 
-Run `git diff section2.0 section2.1` to see exactly what this lesson costs in code, config and tests.
+Run `git diff section2.1 section2.2` to see exactly what this lesson costs in code, config and tests.
 
 ### Conventions shared across all branches
 
@@ -103,29 +104,26 @@ The app starts on `http://localhost:8080`.
 
 ### 3. Send a chat request
 
-The app exposes a single endpoint:
+The app exposes two endpoints:
 
-| Method | URL | Query param | Response |
+| Method | URL | Query params | Response |
 |--------|-----|-------------|----------|
-| `GET`  | `http://localhost:8080/api/chat` | `message` (required) | `text/plain` — the LLM's reply, scoped to the **HR** persona configured as the default system prompt |
+| `GET`  | `http://localhost:8080/api/chat`  | `message` (required) | `text/plain` — HR-persona reply using the default system prompt |
+| `GET`  | `http://localhost:8080/api/email` | `customerName`, `customerMessage` (both required) | `text/plain` — a customer-service email draft, rendered from `userPromptTemplate.st` with the params interpolated |
 
 **With curl:**
 
 ```bash
+# The section2.1 endpoint still works — HR defaults.
 curl "http://localhost:8080/api/chat?message=How%20many%20vacation%20days%20do%20I%20get?"
+
+# The new section2.2 endpoint — template-driven user prompt.
+curl "http://localhost:8080/api/email?customerName=Alice&customerMessage=My%20order%20arrived%20damaged."
 ```
-
-**With httpie:**
-
-```bash
-http ":8080/api/chat" message=="How many vacation days do I get?"
-```
-
-**In a browser:** open <http://localhost:8080/api/chat?message=How%20many%20vacation%20days%20do%20I%20get?>
 
 **With Postman:** import `SpringAI.postman_collection.json` from the repo root.
 
-The system prompt is now defined **once** in `ChatClientConfig.HR_ASSISTANT_SYSTEM_PROMPT`. Off-topic questions ("recommend me a pizza recipe") will be politely declined — same behaviour as section2.0, but the persona lives in config, not the controller.
+The user prompt lives in `section02/springai/src/main/resources/promptTemplates/userPromptTemplate.st`. Swap in your own template by editing that file — no code change needed.
 
 > Endpoint defined in `section02/springai/src/main/java/com/eazybytes/springai/controller/ChatController.java`. Port `8080` is the Spring Boot default — override with `--server.port=9090` if it conflicts.
 
