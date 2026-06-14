@@ -2,7 +2,7 @@
 
 A personal learning path for **Spring AI**, organized as one branch per lesson. Each branch builds on the previous one and contains a single self-contained Spring Boot project.
 
-> 👉 **You are on the `section2.6` branch.** Seventh lesson of *Spring AI Essentials*: **ChatOptions** — tune the model's behaviour (model id, temperature, top-p…) once on the `ChatClient.Builder` as defaults, then **override per-call** when a specific endpoint needs different settings. The HR endpoint stays at the playful `temperature=0.8` default; the FAQ endpoint pins `temperature=0.1, top-p=0.9` via provider-specific `OllamaOptions` for deterministic answers. Built on top of [`section2.5`](https://github.com/david-iaggbs/spring-ai/tree/section2.5) and still running entirely on a **local LLM via [Ollama](https://ollama.com)**.
+> 👉 **You are on the `section2.7` branch.** Eighth lesson of *Spring AI Essentials*: **Streaming Responses** — instead of waiting for the full reply, push tokens to the client as they arrive. `ChatClient.prompt()…stream().content()` returns a `Flux<String>`, and Spring MVC turns it into a chunked **`text/event-stream`** response. Built on top of [`section2.6`](https://github.com/david-iaggbs/spring-ai/tree/section2.6) and still running entirely on a **local LLM via [Ollama](https://ollama.com)**.
 
 ---
 
@@ -22,31 +22,22 @@ The "Spring AI Essentials" course section is split into incremental sub-branches
 | `section2.3` | Prompt Stuffing — domain knowledge inside the `system` prompt |
 | `section2.4` | Built-in Advisors — `SimpleLoggerAdvisor` via `defaultAdvisors(...)` |
 | `section2.5` | Custom Advisors — `TokenUsageAuditAdvisor` implementing `CallAdvisor` |
-| **`section2.6`** *(you are here)* | **ChatOptions** — global `defaultOptions(...)` + per-call `OllamaOptions` override |
-| `section2.7` | Streaming Responses (`Flux<String>`) |
+| `section2.6` | ChatOptions — global `defaultOptions(...)` + per-call `OllamaOptions` override |
+| **`section2.7`** *(you are here)* | **Streaming Responses** — `Flux<String>` over `text/event-stream` |
 | `section2.8` | Structured Output (Bean / List / Map / `ParameterizedTypeReference`) |
 
-### This branch — `section2.6`
+### This branch — `section2.7`
 
-**Purpose**: introduce **ChatOptions** — Spring AI's way to express model knobs (model id, temperature, top-p, top-k, seed, format…). Defaults live on the `ChatClient.Builder`; individual endpoints can override per call. Defaults use the **generic `ChatOptions`** so they work with any provider; the per-call override uses the **provider-specific `OllamaOptions`** to demonstrate access to Ollama-only fields when you need them.
+**Purpose**: introduce **Streaming Responses**. So far every endpoint used `.call()` and blocked until the model finished. This branch adds a new endpoint that uses `.stream().content()` to return a Reactor `Flux<String>` — Spring MVC negotiates `text/event-stream` and forwards each token to the client as it lands. Watching `curl -N` against `/api/stream` shows tokens appearing in real time, just like the typewriter effect of consumer chatbots.
 
-**What it adds on top of the [`section2.5`](https://github.com/david-iaggbs/spring-ai/tree/section2.5) baseline**:
-- `ChatClientConfig` now builds a default `ChatOptions.builder().model("llama3.2:1b").temperature(0.8).build()` and registers it first on the builder via `.defaultOptions(...)`. Two new exposed constants — `DEFAULT_MODEL`, `DEFAULT_TEMPERATURE` — keep magic values out of the tests.
-- `PromptStuffingController` now overrides per call:
-  ```java
-  .options(OllamaOptions.builder()
-          .model(STRICT_MODEL)
-          .temperature(0.1)
-          .topP(0.9)
-          .build())
-  ```
-  The FAQ endpoint needs deterministic answers, so the playful HR default (`0.8`) is replaced with a strict `0.1` / `0.9` for this call only. The other endpoints keep the HR defaults.
+**What it adds on top of the [`section2.6`](https://github.com/david-iaggbs/spring-ai/tree/section2.6) baseline**:
+- New `StreamController` exposing `GET /api/stream?message=…`, declared with `produces = MediaType.TEXT_EVENT_STREAM_VALUE` so Spring MVC streams each emission as an SSE event. It injects the singleton `ChatClient` and returns `chatClient.prompt().user(message).stream().content()` — defaults (system prompt, advisors, options) all flow through unchanged.
 - Tests:
-  - **Unit** — `PromptStuffingControllerTest` updated to include `.options(any(ChatOptions.class))` in the stubbed chain.
-  - **Integration** — `ChatControllerIntegrationTest` captures the `defaultOptions(...)` argument and asserts model + temperature match the constants; the rest of the verify chain re-anchors on the post-`defaultOptions` builder mock. `PromptStuffingControllerIntegrationTest` gains an `ArgumentCaptor<ChatOptions>` on `prompt().options(...)` and asserts the captured instance is an `OllamaOptions` with the strict model + temperature + top-p.
-  - **E2E** — no new e2e test; all three existing e2e tests continue to pass against real Ollama, proving the global defaults wire end-to-end and the per-call override doesn't break the FAQ endpoint.
+  - **Unit** — `StreamControllerTest` (`@WebMvcTest`) stubs the `.stream().content()` chain to a `Flux.just("Sure", ", ", "you have ", "20 days.")`, then exercises the endpoint via `request().asyncStarted()` + `asyncDispatch(...)` to verify each chunk lands in the response body.
+  - **Integration** — `StreamControllerIntegrationTest` (`@SpringBootTest`) repeats the pattern with the full context loaded.
+  - **E2E** — `StreamControllerOllamaIT` boots an Ollama Testcontainer, lets the real model stream a real reply, and asserts the dispatched response is non-empty (i.e. ≥1 chunk arrived and the stream terminated cleanly).
 
-Run `git diff section2.5 section2.6` to see exactly what this lesson costs in code, config and tests.
+Run `git diff section2.6 section2.7` to see exactly what this lesson costs in code, config and tests.
 
 ### Conventions shared across all branches
 
@@ -111,13 +102,14 @@ The app starts on `http://localhost:8080`.
 
 ### 3. Send a chat request
 
-The app exposes three endpoints:
+The app exposes four endpoints:
 
 | Method | URL | Query params | Response |
 |--------|-----|-------------|----------|
 | `GET`  | `http://localhost:8080/api/chat`             | `message` (required) | `text/plain` — HR-persona reply using the default system prompt |
 | `GET`  | `http://localhost:8080/api/email`            | `customerName`, `customerMessage` (both required) | `text/plain` — a customer-service email draft, rendered from `userPromptTemplate.st` |
 | `GET`  | `http://localhost:8080/api/prompt-stuffing`  | `message` (required) | `text/plain` — answer grounded in the EazyBytes-Tech FAQ stuffed into `systemPromptTemplate.st` |
+| `GET`  | `http://localhost:8080/api/stream`           | `message` (required) | `text/event-stream` — tokens streamed live as the model generates them |
 
 **With curl:**
 
@@ -130,6 +122,9 @@ curl "http://localhost:8080/api/email?customerName=Alice&customerMessage=My%20or
 
 # Section 2.3 — answer from the stuffed FAQ.
 curl "http://localhost:8080/api/prompt-stuffing?message=What%20is%20your%20refund%20policy?"
+
+# Section 2.7 — watch tokens stream in real time (-N disables curl output buffering).
+curl -N "http://localhost:8080/api/stream?message=Tell%20me%20about%20parental%20leave"
 ```
 
 **With Postman:** import `SpringAI.postman_collection.json` from the repo root.
