@@ -2,9 +2,12 @@ package com.eazybytes.springai.controller;
 
 import com.eazybytes.springai.config.ChatClientConfig;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Answers;
 import org.mockito.Mockito;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
+import org.springframework.ai.chat.client.advisor.api.Advisor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -13,6 +16,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -45,17 +49,25 @@ class ChatControllerIntegrationTest {
 	}
 
 	@Test
-	void chat_client_bean_is_built_with_default_system_and_user_prompts() {
+	void chat_client_bean_is_built_with_simple_logger_advisor_and_default_prompts() {
 		// Forces ChatClientConfig.chatClient(...) to be initialised; the
 		// resulting ChatClient is a deep-stub mock built from the test builder.
-		verify(chatClientBuilder).defaultSystem(ChatClientConfig.HR_ASSISTANT_SYSTEM_PROMPT);
-		verify(chatClientBuilder.defaultSystem(ChatClientConfig.HR_ASSISTANT_SYSTEM_PROMPT))
+		ArgumentCaptor<Advisor[]> advisorsCaptor = ArgumentCaptor.forClass(Advisor[].class);
+		verify(chatClientBuilder).defaultAdvisors(advisorsCaptor.capture());
+		assertThat(advisorsCaptor.getValue())
+				.hasAtLeastOneElementOfType(SimpleLoggerAdvisor.class);
+
+		verify(chatClientBuilder.defaultAdvisors(any(Advisor[].class)))
+				.defaultSystem(ChatClientConfig.HR_ASSISTANT_SYSTEM_PROMPT);
+		verify(chatClientBuilder.defaultAdvisors(any(Advisor[].class))
+				.defaultSystem(ChatClientConfig.HR_ASSISTANT_SYSTEM_PROMPT))
 				.defaultUser(ChatClientConfig.DEFAULT_USER_MESSAGE);
 	}
 
 	@Test
 	void full_context_loads_and_routes_chat_request() throws Exception {
 		when(chatClientBuilder
+				.defaultAdvisors(any(Advisor[].class))
 				.defaultSystem(any(String.class))
 				.defaultUser(any(String.class))
 				.build()

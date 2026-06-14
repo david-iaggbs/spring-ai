@@ -2,7 +2,7 @@
 
 A personal learning path for **Spring AI**, organized as one branch per lesson. Each branch builds on the previous one and contains a single self-contained Spring Boot project.
 
-> 👉 **You are on the `section2.3` branch.** Fourth lesson of *Spring AI Essentials*: **Prompt Stuffing** — inject a small knowledge base (FAQ, policies, product info) directly into the **system** prompt so the LLM answers grounded in *your* data, no fine-tuning or vector store required. Works great for tiny KBs; for anything larger, RAG (section 4) is the right answer. Built on top of [`section2.2`](https://github.com/david-iaggbs/spring-ai/tree/section2.2) and still running entirely on a **local LLM via [Ollama](https://ollama.com)**.
+> 👉 **You are on the `section2.4` branch.** Fifth lesson of *Spring AI Essentials*: **Built-in Advisors** — Spring AI's `Advisor` interface lets you intercept the request/response of every `ChatClient` call. This branch wires in the built-in `SimpleLoggerAdvisor` so every chat turn is logged at DEBUG level, with **zero changes to the controllers** — they pick up the advisor through the singleton `ChatClient` bean. Built on top of [`section2.3`](https://github.com/david-iaggbs/spring-ai/tree/section2.3) and still running entirely on a **local LLM via [Ollama](https://ollama.com)**.
 
 ---
 
@@ -19,29 +19,26 @@ The "Spring AI Essentials" course section is split into incremental sub-branches
 | `section2.0` | Message Roles — `system` vs `user` |
 | `section2.1` | Spring AI Defaults — `defaultSystem`, `defaultUser` |
 | `section2.2` | Prompt Templates — external `.st` files, `param(...)` binding |
-| **`section2.3`** *(you are here)* | **Prompt Stuffing** — domain knowledge inside the `system` prompt |
-| `section2.4` | Built-in Advisors (`SimpleLoggerAdvisor`) |
+| `section2.3` | Prompt Stuffing — domain knowledge inside the `system` prompt |
+| **`section2.4`** *(you are here)* | **Built-in Advisors** — `SimpleLoggerAdvisor` via `defaultAdvisors(...)` |
 | `section2.5` | Custom Advisors (`TokenUsageAuditAdvisor`) |
 | `section2.6` | ChatOptions (global + per-call overrides) |
 | `section2.7` | Streaming Responses (`Flux<String>`) |
 | `section2.8` | Structured Output (Bean / List / Map / `ParameterizedTypeReference`) |
 
-### This branch — `section2.3`
+### This branch — `section2.4`
 
-**Purpose**: introduce **Prompt Stuffing**. Instead of fine-tuning a model or wiring a vector store, you cram the relevant snippets of your domain knowledge directly into the **system** prompt — the LLM then answers grounded in that data. This branch ships a tiny EazyBytes-Tech FAQ as a `.st` resource and an endpoint that answers customer questions from it.
+**Purpose**: introduce **Advisors** — Spring AI's interceptor pattern for the `ChatClient` pipeline. An `Advisor` sees every request before it hits the model and every response on the way back, which makes it the natural place for cross-cutting concerns: logging, auditing, retries, guardrails, RAG context injection, etc. This branch registers the **built-in `SimpleLoggerAdvisor`** on the singleton `ChatClient` bean — every existing endpoint (`/api/chat`, `/api/email`, `/api/prompt-stuffing`) now logs its full request/response at DEBUG level with no controller change.
 
-> **Token-budget warning.** Prompt stuffing scales linearly with knowledge-base size. It's perfect for ~1 KB of policies/FAQs (this branch). It will hit context-window limits and cost the moment your KB grows beyond a few thousand tokens — at that point switch to **RAG** (covered later in the course).
+**What it adds on top of the [`section2.3`](https://github.com/david-iaggbs/spring-ai/tree/section2.3) baseline**:
+- `ChatClientConfig` now starts the builder chain with `.defaultAdvisors(new SimpleLoggerAdvisor())` so the advisor sits in front of everything else (it sees the original request, then the final response).
+- No controller changes — advisors flow through the singleton `ChatClient` bean.
+- Tests:
+  - **Unit** — existing controller unit tests are unchanged (advisors are invisible at the controller level).
+  - **Integration** — `ChatControllerIntegrationTest` adds an `ArgumentCaptor<Advisor[]>` on `defaultAdvisors(...)` and asserts the captured array contains a `SimpleLoggerAdvisor`. The existing `defaultSystem`/`defaultUser` verify chain is updated to start from the post-`defaultAdvisors` builder mock.
+  - **E2E** — `ChatControllerOllamaIT` enables `logging.level.…SimpleLoggerAdvisor=DEBUG` and uses `OutputCaptureExtension` to assert the advisor actually logs during a real call against the Ollama Testcontainer.
 
-**What it adds on top of the [`section2.2`](https://github.com/david-iaggbs/spring-ai/tree/section2.2) baseline**:
-- New template `src/main/resources/promptTemplates/systemPromptTemplate.st` containing the company FAQ (office hours, refund policy, course access, enterprise plan…).
-- New `PromptStuffingController` exposing `GET /api/prompt-stuffing?message=…`. It injects the singleton `ChatClient`, calls `.system(Resource)` with the stuffed FAQ, and forwards the user's question. The system prompt instructs the model to answer **only** from the provided context.
-- The previous endpoints from sections 2.1 and 2.2 are unchanged.
-- Tests for the new endpoint:
-  - **Unit** — `@WebMvcTest(PromptStuffingController.class)` with `@MockitoBean(RETURNS_DEEP_STUBS) ChatClient`, asserting the response body.
-  - **Integration** — full context + `ArgumentCaptor<Resource>` on `.system(...)`; the captured resource is read back from the classpath and its contents are asserted to contain key phrases from the stuffed FAQ.
-  - **E2E** — Ollama Testcontainer call to `/api/prompt-stuffing` asking "What is your refund policy?", asserting a non-empty body.
-
-Run `git diff section2.2 section2.3` to see exactly what this lesson costs in code, config and tests.
+Run `git diff section2.3 section2.4` to see exactly what this lesson costs in code, config and tests.
 
 ### Conventions shared across all branches
 
@@ -130,6 +127,12 @@ curl "http://localhost:8080/api/prompt-stuffing?message=What%20is%20your%20refun
 **With Postman:** import `SpringAI.postman_collection.json` from the repo root.
 
 Both `.st` templates live under `section02/springai/src/main/resources/promptTemplates/`. Edit `systemPromptTemplate.st` to swap the stuffed knowledge base; no code change needed.
+
+> **Seeing the advisor in action:** by default `SimpleLoggerAdvisor` logs at DEBUG. To watch every request/response live, add this to `application.properties` (or pass it as `--logging.level.…=DEBUG` on the command line):
+>
+> ```properties
+> logging.level.org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor=DEBUG
+> ```
 
 > Endpoint defined in `section02/springai/src/main/java/com/eazybytes/springai/controller/ChatController.java`. Port `8080` is the Spring Boot default — override with `--server.port=9090` if it conflicts.
 
