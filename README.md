@@ -2,7 +2,7 @@
 
 A personal learning path for **Spring AI**, organized as one branch per lesson. Each branch builds on the previous one and contains a single self-contained Spring Boot project.
 
-> 👉 **You are on the `section2.4` branch.** Fifth lesson of *Spring AI Essentials*: **Built-in Advisors** — Spring AI's `Advisor` interface lets you intercept the request/response of every `ChatClient` call. This branch wires in the built-in `SimpleLoggerAdvisor` so every chat turn is logged at DEBUG level, with **zero changes to the controllers** — they pick up the advisor through the singleton `ChatClient` bean. Built on top of [`section2.3`](https://github.com/david-iaggbs/spring-ai/tree/section2.3) and still running entirely on a **local LLM via [Ollama](https://ollama.com)**.
+> 👉 **You are on the `section2.5` branch.** Sixth lesson of *Spring AI Essentials*: **Custom Advisors** — implement your own `CallAdvisor` to inspect every chat response and log token usage from the model's metadata. The new `TokenUsageAuditAdvisor` joins `SimpleLoggerAdvisor` from section2.4 on the same `ChatClient` bean — every endpoint gets the audit log for free. Built on top of [`section2.4`](https://github.com/david-iaggbs/spring-ai/tree/section2.4) and still running entirely on a **local LLM via [Ollama](https://ollama.com)**.
 
 ---
 
@@ -20,25 +20,25 @@ The "Spring AI Essentials" course section is split into incremental sub-branches
 | `section2.1` | Spring AI Defaults — `defaultSystem`, `defaultUser` |
 | `section2.2` | Prompt Templates — external `.st` files, `param(...)` binding |
 | `section2.3` | Prompt Stuffing — domain knowledge inside the `system` prompt |
-| **`section2.4`** *(you are here)* | **Built-in Advisors** — `SimpleLoggerAdvisor` via `defaultAdvisors(...)` |
-| `section2.5` | Custom Advisors (`TokenUsageAuditAdvisor`) |
+| `section2.4` | Built-in Advisors — `SimpleLoggerAdvisor` via `defaultAdvisors(...)` |
+| **`section2.5`** *(you are here)* | **Custom Advisors** — `TokenUsageAuditAdvisor` implementing `CallAdvisor` |
 | `section2.6` | ChatOptions (global + per-call overrides) |
 | `section2.7` | Streaming Responses (`Flux<String>`) |
 | `section2.8` | Structured Output (Bean / List / Map / `ParameterizedTypeReference`) |
 
-### This branch — `section2.4`
+### This branch — `section2.5`
 
-**Purpose**: introduce **Advisors** — Spring AI's interceptor pattern for the `ChatClient` pipeline. An `Advisor` sees every request before it hits the model and every response on the way back, which makes it the natural place for cross-cutting concerns: logging, auditing, retries, guardrails, RAG context injection, etc. This branch registers the **built-in `SimpleLoggerAdvisor`** on the singleton `ChatClient` bean — every existing endpoint (`/api/chat`, `/api/email`, `/api/prompt-stuffing`) now logs its full request/response at DEBUG level with no controller change.
+**Purpose**: implement a **Custom Advisor**. The built-in `SimpleLoggerAdvisor` from section2.4 takes care of request/response logging; this branch adds `TokenUsageAuditAdvisor` — a 30-line `CallAdvisor` that pulls `Usage` (prompt / completion / total tokens) out of the `ChatResponse` metadata and logs it at INFO. That's the seed of a real cost-monitoring or rate-limiting pipeline.
 
-**What it adds on top of the [`section2.3`](https://github.com/david-iaggbs/spring-ai/tree/section2.3) baseline**:
-- `ChatClientConfig` now starts the builder chain with `.defaultAdvisors(new SimpleLoggerAdvisor())` so the advisor sits in front of everything else (it sees the original request, then the final response).
-- No controller changes — advisors flow through the singleton `ChatClient` bean.
+**What it adds on top of the [`section2.4`](https://github.com/david-iaggbs/spring-ai/tree/section2.4) baseline**:
+- New `advisors/TokenUsageAuditAdvisor.java` implementing `CallAdvisor`. After the chain returns, it grabs the `ChatResponse#getMetadata()#getUsage()` and logs `"Token usage details : <usage>"`. Defensive null-checks keep it safe when a provider omits metadata.
+- `ChatClientConfig#defaultAdvisors(...)` now registers both `SimpleLoggerAdvisor` and `TokenUsageAuditAdvisor`. No controller changes; every endpoint inherits the audit log.
 - Tests:
-  - **Unit** — existing controller unit tests are unchanged (advisors are invisible at the controller level).
-  - **Integration** — `ChatControllerIntegrationTest` adds an `ArgumentCaptor<Advisor[]>` on `defaultAdvisors(...)` and asserts the captured array contains a `SimpleLoggerAdvisor`. The existing `defaultSystem`/`defaultUser` verify chain is updated to start from the post-`defaultAdvisors` builder mock.
-  - **E2E** — `ChatControllerOllamaIT` enables `logging.level.…SimpleLoggerAdvisor=DEBUG` and uses `OutputCaptureExtension` to assert the advisor actually logs during a real call against the Ollama Testcontainer.
+  - **Unit** — `TokenUsageAuditAdvisorTest` covers four behaviours with plain JUnit + Mockito + `OutputCaptureExtension`: returns the chain response unchanged, logs `"Token usage details"` when `Usage` is present, stays silent when `ChatResponse` is null, and reports the expected `getName()` + `getOrder()`.
+  - **Integration** — `ChatControllerIntegrationTest` extends the captured-advisor assertion to also expect a `TokenUsageAuditAdvisor` instance in the array.
+  - **E2E** — `ChatControllerOllamaIT` extends the log assertion to also require `"Token usage details"` in the captured output, proving the real Ollama call surfaces token usage all the way through to the advisor.
 
-Run `git diff section2.3 section2.4` to see exactly what this lesson costs in code, config and tests.
+Run `git diff section2.4 section2.5` to see exactly what this lesson costs in code, config and tests.
 
 ### Conventions shared across all branches
 

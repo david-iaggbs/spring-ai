@@ -1,5 +1,6 @@
 package com.eazybytes.springai.controller;
 
+import com.eazybytes.springai.advisors.TokenUsageAuditAdvisor;
 import com.eazybytes.springai.config.ChatClientConfig;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -49,13 +50,14 @@ class ChatControllerIntegrationTest {
 	}
 
 	@Test
-	void chat_client_bean_is_built_with_simple_logger_advisor_and_default_prompts() {
+	void chat_client_bean_is_built_with_builtin_and_custom_advisors_and_default_prompts() {
 		// Forces ChatClientConfig.chatClient(...) to be initialised; the
 		// resulting ChatClient is a deep-stub mock built from the test builder.
 		ArgumentCaptor<Advisor[]> advisorsCaptor = ArgumentCaptor.forClass(Advisor[].class);
 		verify(chatClientBuilder).defaultAdvisors(advisorsCaptor.capture());
 		assertThat(advisorsCaptor.getValue())
-				.hasAtLeastOneElementOfType(SimpleLoggerAdvisor.class);
+				.hasAtLeastOneElementOfType(SimpleLoggerAdvisor.class)
+				.hasAtLeastOneElementOfType(TokenUsageAuditAdvisor.class);
 
 		verify(chatClientBuilder.defaultAdvisors(any(Advisor[].class)))
 				.defaultSystem(ChatClientConfig.HR_ASSISTANT_SYSTEM_PROMPT);

@@ -52,7 +52,7 @@ class ChatControllerOllamaIT {
 	MockMvc mvc;
 
 	@Test
-	void real_model_responds_and_simple_logger_advisor_logs_request(CapturedOutput output) throws Exception {
+	void real_model_responds_and_both_advisors_log(CapturedOutput output) throws Exception {
 		mvc.perform(get("/api/chat")
 						.param("message", "How many vacation days do I get?"))
 				.andExpect(status().isOk())
@@ -62,6 +62,11 @@ class ChatControllerOllamaIT {
 				.as("SimpleLoggerAdvisor should emit a request log line when DEBUG is enabled")
 				.contains("SimpleLoggerAdvisor")
 				.containsPattern("(?i)request");
+
+		assertThat(output.getOut())
+				.as("TokenUsageAuditAdvisor should log Usage from the response metadata")
+				.contains("TokenUsageAuditAdvisor")
+				.contains("Token usage details");
 	}
 
 }

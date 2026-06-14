@@ -1,5 +1,6 @@
 package com.eazybytes.springai.config;
 
+import com.eazybytes.springai.advisors.TokenUsageAuditAdvisor;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
 import org.springframework.context.annotation.Bean;
@@ -22,7 +23,7 @@ public class ChatClientConfig {
 	@Bean
 	public ChatClient chatClient(ChatClient.Builder chatClientBuilder) {
 		return chatClientBuilder
-				.defaultAdvisors(new SimpleLoggerAdvisor())
+				.defaultAdvisors(new SimpleLoggerAdvisor(), new TokenUsageAuditAdvisor())
 				.defaultSystem(HR_ASSISTANT_SYSTEM_PROMPT)
 				.defaultUser(DEFAULT_USER_MESSAGE)
 				.build();
