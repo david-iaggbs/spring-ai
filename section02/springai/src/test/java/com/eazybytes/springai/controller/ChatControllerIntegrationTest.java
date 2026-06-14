@@ -9,6 +9,7 @@ import org.mockito.Mockito;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
 import org.springframework.ai.chat.client.advisor.api.Advisor;
+import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -50,18 +51,27 @@ class ChatControllerIntegrationTest {
 	}
 
 	@Test
-	void chat_client_bean_is_built_with_builtin_and_custom_advisors_and_default_prompts() {
+	void chat_client_bean_is_built_with_default_options_advisors_and_prompts() {
 		// Forces ChatClientConfig.chatClient(...) to be initialised; the
 		// resulting ChatClient is a deep-stub mock built from the test builder.
+		ArgumentCaptor<ChatOptions> optionsCaptor = ArgumentCaptor.forClass(ChatOptions.class);
+		verify(chatClientBuilder).defaultOptions(optionsCaptor.capture());
+		ChatOptions defaults = optionsCaptor.getValue();
+		assertThat(defaults.getModel()).isEqualTo(ChatClientConfig.DEFAULT_MODEL);
+		assertThat(defaults.getTemperature()).isEqualTo(ChatClientConfig.DEFAULT_TEMPERATURE);
+
 		ArgumentCaptor<Advisor[]> advisorsCaptor = ArgumentCaptor.forClass(Advisor[].class);
-		verify(chatClientBuilder).defaultAdvisors(advisorsCaptor.capture());
+		verify(chatClientBuilder.defaultOptions(any(ChatOptions.class)))
+				.defaultAdvisors(advisorsCaptor.capture());
 		assertThat(advisorsCaptor.getValue())
 				.hasAtLeastOneElementOfType(SimpleLoggerAdvisor.class)
 				.hasAtLeastOneElementOfType(TokenUsageAuditAdvisor.class);
 
-		verify(chatClientBuilder.defaultAdvisors(any(Advisor[].class)))
+		verify(chatClientBuilder.defaultOptions(any(ChatOptions.class))
+				.defaultAdvisors(any(Advisor[].class)))
 				.defaultSystem(ChatClientConfig.HR_ASSISTANT_SYSTEM_PROMPT);
-		verify(chatClientBuilder.defaultAdvisors(any(Advisor[].class))
+		verify(chatClientBuilder.defaultOptions(any(ChatOptions.class))
+				.defaultAdvisors(any(Advisor[].class))
 				.defaultSystem(ChatClientConfig.HR_ASSISTANT_SYSTEM_PROMPT))
 				.defaultUser(ChatClientConfig.DEFAULT_USER_MESSAGE);
 	}
@@ -69,6 +79,7 @@ class ChatControllerIntegrationTest {
 	@Test
 	void full_context_loads_and_routes_chat_request() throws Exception {
 		when(chatClientBuilder
+				.defaultOptions(any(ChatOptions.class))
 				.defaultAdvisors(any(Advisor[].class))
 				.defaultSystem(any(String.class))
 				.defaultUser(any(String.class))

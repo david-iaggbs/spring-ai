@@ -2,7 +2,7 @@
 
 A personal learning path for **Spring AI**, organized as one branch per lesson. Each branch builds on the previous one and contains a single self-contained Spring Boot project.
 
-> 👉 **You are on the `section2.5` branch.** Sixth lesson of *Spring AI Essentials*: **Custom Advisors** — implement your own `CallAdvisor` to inspect every chat response and log token usage from the model's metadata. The new `TokenUsageAuditAdvisor` joins `SimpleLoggerAdvisor` from section2.4 on the same `ChatClient` bean — every endpoint gets the audit log for free. Built on top of [`section2.4`](https://github.com/david-iaggbs/spring-ai/tree/section2.4) and still running entirely on a **local LLM via [Ollama](https://ollama.com)**.
+> 👉 **You are on the `section2.6` branch.** Seventh lesson of *Spring AI Essentials*: **ChatOptions** — tune the model's behaviour (model id, temperature, top-p…) once on the `ChatClient.Builder` as defaults, then **override per-call** when a specific endpoint needs different settings. The HR endpoint stays at the playful `temperature=0.8` default; the FAQ endpoint pins `temperature=0.1, top-p=0.9` via provider-specific `OllamaOptions` for deterministic answers. Built on top of [`section2.5`](https://github.com/david-iaggbs/spring-ai/tree/section2.5) and still running entirely on a **local LLM via [Ollama](https://ollama.com)**.
 
 ---
 
@@ -21,24 +21,32 @@ The "Spring AI Essentials" course section is split into incremental sub-branches
 | `section2.2` | Prompt Templates — external `.st` files, `param(...)` binding |
 | `section2.3` | Prompt Stuffing — domain knowledge inside the `system` prompt |
 | `section2.4` | Built-in Advisors — `SimpleLoggerAdvisor` via `defaultAdvisors(...)` |
-| **`section2.5`** *(you are here)* | **Custom Advisors** — `TokenUsageAuditAdvisor` implementing `CallAdvisor` |
-| `section2.6` | ChatOptions (global + per-call overrides) |
+| `section2.5` | Custom Advisors — `TokenUsageAuditAdvisor` implementing `CallAdvisor` |
+| **`section2.6`** *(you are here)* | **ChatOptions** — global `defaultOptions(...)` + per-call `OllamaOptions` override |
 | `section2.7` | Streaming Responses (`Flux<String>`) |
 | `section2.8` | Structured Output (Bean / List / Map / `ParameterizedTypeReference`) |
 
-### This branch — `section2.5`
+### This branch — `section2.6`
 
-**Purpose**: implement a **Custom Advisor**. The built-in `SimpleLoggerAdvisor` from section2.4 takes care of request/response logging; this branch adds `TokenUsageAuditAdvisor` — a 30-line `CallAdvisor` that pulls `Usage` (prompt / completion / total tokens) out of the `ChatResponse` metadata and logs it at INFO. That's the seed of a real cost-monitoring or rate-limiting pipeline.
+**Purpose**: introduce **ChatOptions** — Spring AI's way to express model knobs (model id, temperature, top-p, top-k, seed, format…). Defaults live on the `ChatClient.Builder`; individual endpoints can override per call. Defaults use the **generic `ChatOptions`** so they work with any provider; the per-call override uses the **provider-specific `OllamaOptions`** to demonstrate access to Ollama-only fields when you need them.
 
-**What it adds on top of the [`section2.4`](https://github.com/david-iaggbs/spring-ai/tree/section2.4) baseline**:
-- New `advisors/TokenUsageAuditAdvisor.java` implementing `CallAdvisor`. After the chain returns, it grabs the `ChatResponse#getMetadata()#getUsage()` and logs `"Token usage details : <usage>"`. Defensive null-checks keep it safe when a provider omits metadata.
-- `ChatClientConfig#defaultAdvisors(...)` now registers both `SimpleLoggerAdvisor` and `TokenUsageAuditAdvisor`. No controller changes; every endpoint inherits the audit log.
+**What it adds on top of the [`section2.5`](https://github.com/david-iaggbs/spring-ai/tree/section2.5) baseline**:
+- `ChatClientConfig` now builds a default `ChatOptions.builder().model("llama3.2:1b").temperature(0.8).build()` and registers it first on the builder via `.defaultOptions(...)`. Two new exposed constants — `DEFAULT_MODEL`, `DEFAULT_TEMPERATURE` — keep magic values out of the tests.
+- `PromptStuffingController` now overrides per call:
+  ```java
+  .options(OllamaOptions.builder()
+          .model(STRICT_MODEL)
+          .temperature(0.1)
+          .topP(0.9)
+          .build())
+  ```
+  The FAQ endpoint needs deterministic answers, so the playful HR default (`0.8`) is replaced with a strict `0.1` / `0.9` for this call only. The other endpoints keep the HR defaults.
 - Tests:
-  - **Unit** — `TokenUsageAuditAdvisorTest` covers four behaviours with plain JUnit + Mockito + `OutputCaptureExtension`: returns the chain response unchanged, logs `"Token usage details"` when `Usage` is present, stays silent when `ChatResponse` is null, and reports the expected `getName()` + `getOrder()`.
-  - **Integration** — `ChatControllerIntegrationTest` extends the captured-advisor assertion to also expect a `TokenUsageAuditAdvisor` instance in the array.
-  - **E2E** — `ChatControllerOllamaIT` extends the log assertion to also require `"Token usage details"` in the captured output, proving the real Ollama call surfaces token usage all the way through to the advisor.
+  - **Unit** — `PromptStuffingControllerTest` updated to include `.options(any(ChatOptions.class))` in the stubbed chain.
+  - **Integration** — `ChatControllerIntegrationTest` captures the `defaultOptions(...)` argument and asserts model + temperature match the constants; the rest of the verify chain re-anchors on the post-`defaultOptions` builder mock. `PromptStuffingControllerIntegrationTest` gains an `ArgumentCaptor<ChatOptions>` on `prompt().options(...)` and asserts the captured instance is an `OllamaOptions` with the strict model + temperature + top-p.
+  - **E2E** — no new e2e test; all three existing e2e tests continue to pass against real Ollama, proving the global defaults wire end-to-end and the per-call override doesn't break the FAQ endpoint.
 
-Run `git diff section2.4 section2.5` to see exactly what this lesson costs in code, config and tests.
+Run `git diff section2.5 section2.6` to see exactly what this lesson costs in code, config and tests.
 
 ### Conventions shared across all branches
 

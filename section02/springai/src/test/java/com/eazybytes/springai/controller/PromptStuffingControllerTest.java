@@ -3,6 +3,7 @@ package com.eazybytes.springai.controller;
 import org.junit.jupiter.api.Test;
 import org.mockito.Answers;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.core.io.Resource;
@@ -28,6 +29,7 @@ class PromptStuffingControllerTest {
 	void returns_answer_grounded_in_stuffed_system_prompt() throws Exception {
 		when(chatClient
 				.prompt()
+				.options(any(ChatOptions.class))
 				.system(any(Resource.class))
 				.user("What is your refund policy?")
 				.call()
