@@ -2,7 +2,7 @@
 
 A personal learning path for **Spring AI**, organized as one branch per lesson. Each branch builds on the previous one and contains a single self-contained Spring Boot project.
 
-> 👉 **You are on the `section2.2` branch.** Third lesson of *Spring AI Essentials*: **Prompt Templates** — move the user-facing prompt into an external `.st` file with `{placeholders}`, and bind values at request time via Spring AI's `PromptUserSpec.text(Resource).param(name, value)`. Built on top of [`section2.1`](https://github.com/david-iaggbs/spring-ai/tree/section2.1) and still running entirely on a **local LLM via [Ollama](https://ollama.com)**.
+> 👉 **You are on the `section2.3` branch.** Fourth lesson of *Spring AI Essentials*: **Prompt Stuffing** — inject a small knowledge base (FAQ, policies, product info) directly into the **system** prompt so the LLM answers grounded in *your* data, no fine-tuning or vector store required. Works great for tiny KBs; for anything larger, RAG (section 4) is the right answer. Built on top of [`section2.2`](https://github.com/david-iaggbs/spring-ai/tree/section2.2) and still running entirely on a **local LLM via [Ollama](https://ollama.com)**.
 
 ---
 
@@ -18,28 +18,30 @@ The "Spring AI Essentials" course section is split into incremental sub-branches
 |--------|---------|
 | `section2.0` | Message Roles — `system` vs `user` |
 | `section2.1` | Spring AI Defaults — `defaultSystem`, `defaultUser` |
-| **`section2.2`** *(you are here)* | **Prompt Templates** — external `.st` files, `param(...)` binding |
-| `section2.3` | Prompt Stuffing |
+| `section2.2` | Prompt Templates — external `.st` files, `param(...)` binding |
+| **`section2.3`** *(you are here)* | **Prompt Stuffing** — domain knowledge inside the `system` prompt |
 | `section2.4` | Built-in Advisors (`SimpleLoggerAdvisor`) |
 | `section2.5` | Custom Advisors (`TokenUsageAuditAdvisor`) |
 | `section2.6` | ChatOptions (global + per-call overrides) |
 | `section2.7` | Streaming Responses (`Flux<String>`) |
 | `section2.8` | Structured Output (Bean / List / Map / `ParameterizedTypeReference`) |
 
-### This branch — `section2.2`
+### This branch — `section2.3`
 
-**Purpose**: introduce **Prompt Templates**. Long, parameterised user prompts no longer live as Java string literals — they sit in `.st` files under `src/main/resources/promptTemplates/` and get bound at request time via `PromptUserSpec.text(Resource).param("name", value)`. This branch also demonstrates **overriding** a default system prompt at the call site (we still default to the HR assistant from section2.1, but `/api/email` swaps in a customer-service persona).
+**Purpose**: introduce **Prompt Stuffing**. Instead of fine-tuning a model or wiring a vector store, you cram the relevant snippets of your domain knowledge directly into the **system** prompt — the LLM then answers grounded in that data. This branch ships a tiny EazyBytes-Tech FAQ as a `.st` resource and an endpoint that answers customer questions from it.
 
-**What it adds on top of the [`section2.1`](https://github.com/david-iaggbs/spring-ai/tree/section2.1) baseline**:
-- New template `src/main/resources/promptTemplates/userPromptTemplate.st` with `{customerName}` + `{customerMessage}` placeholders.
-- New `PromptTemplateController` exposing `GET /api/email?customerName=…&customerMessage=…`. It injects the singleton `ChatClient` from `ChatClientConfig`, overrides the default system prompt with a customer-service one, and binds the template params with a `Consumer<PromptUserSpec>` lambda.
-- The original `ChatController` from `section2.1` is unchanged — its `/api/chat` endpoint still uses the HR defaults.
+> **Token-budget warning.** Prompt stuffing scales linearly with knowledge-base size. It's perfect for ~1 KB of policies/FAQs (this branch). It will hit context-window limits and cost the moment your KB grows beyond a few thousand tokens — at that point switch to **RAG** (covered later in the course).
+
+**What it adds on top of the [`section2.2`](https://github.com/david-iaggbs/spring-ai/tree/section2.2) baseline**:
+- New template `src/main/resources/promptTemplates/systemPromptTemplate.st` containing the company FAQ (office hours, refund policy, course access, enterprise plan…).
+- New `PromptStuffingController` exposing `GET /api/prompt-stuffing?message=…`. It injects the singleton `ChatClient`, calls `.system(Resource)` with the stuffed FAQ, and forwards the user's question. The system prompt instructs the model to answer **only** from the provided context.
+- The previous endpoints from sections 2.1 and 2.2 are unchanged.
 - Tests for the new endpoint:
-  - **Unit** — `@WebMvcTest(PromptTemplateController.class)` with `@MockitoBean(answers = RETURNS_DEEP_STUBS) ChatClient`.
-  - **Integration** — full context + `ArgumentCaptor` capturing the `Consumer<PromptUserSpec>` lambda; the captured lambda is replayed against a `RETURNS_SELF` mock spec to verify `text(Resource)` + both `param(...)` calls actually happen with the request values.
-  - **E2E** — Ollama Testcontainer call to `/api/email`, asserting a non-empty body.
+  - **Unit** — `@WebMvcTest(PromptStuffingController.class)` with `@MockitoBean(RETURNS_DEEP_STUBS) ChatClient`, asserting the response body.
+  - **Integration** — full context + `ArgumentCaptor<Resource>` on `.system(...)`; the captured resource is read back from the classpath and its contents are asserted to contain key phrases from the stuffed FAQ.
+  - **E2E** — Ollama Testcontainer call to `/api/prompt-stuffing` asking "What is your refund policy?", asserting a non-empty body.
 
-Run `git diff section2.1 section2.2` to see exactly what this lesson costs in code, config and tests.
+Run `git diff section2.2 section2.3` to see exactly what this lesson costs in code, config and tests.
 
 ### Conventions shared across all branches
 
@@ -104,26 +106,30 @@ The app starts on `http://localhost:8080`.
 
 ### 3. Send a chat request
 
-The app exposes two endpoints:
+The app exposes three endpoints:
 
 | Method | URL | Query params | Response |
 |--------|-----|-------------|----------|
-| `GET`  | `http://localhost:8080/api/chat`  | `message` (required) | `text/plain` — HR-persona reply using the default system prompt |
-| `GET`  | `http://localhost:8080/api/email` | `customerName`, `customerMessage` (both required) | `text/plain` — a customer-service email draft, rendered from `userPromptTemplate.st` with the params interpolated |
+| `GET`  | `http://localhost:8080/api/chat`             | `message` (required) | `text/plain` — HR-persona reply using the default system prompt |
+| `GET`  | `http://localhost:8080/api/email`            | `customerName`, `customerMessage` (both required) | `text/plain` — a customer-service email draft, rendered from `userPromptTemplate.st` |
+| `GET`  | `http://localhost:8080/api/prompt-stuffing`  | `message` (required) | `text/plain` — answer grounded in the EazyBytes-Tech FAQ stuffed into `systemPromptTemplate.st` |
 
 **With curl:**
 
 ```bash
-# The section2.1 endpoint still works — HR defaults.
+# Section 2.1 — HR defaults.
 curl "http://localhost:8080/api/chat?message=How%20many%20vacation%20days%20do%20I%20get?"
 
-# The new section2.2 endpoint — template-driven user prompt.
+# Section 2.2 — template-driven user prompt.
 curl "http://localhost:8080/api/email?customerName=Alice&customerMessage=My%20order%20arrived%20damaged."
+
+# Section 2.3 — answer from the stuffed FAQ.
+curl "http://localhost:8080/api/prompt-stuffing?message=What%20is%20your%20refund%20policy?"
 ```
 
 **With Postman:** import `SpringAI.postman_collection.json` from the repo root.
 
-The user prompt lives in `section02/springai/src/main/resources/promptTemplates/userPromptTemplate.st`. Swap in your own template by editing that file — no code change needed.
+Both `.st` templates live under `section02/springai/src/main/resources/promptTemplates/`. Edit `systemPromptTemplate.st` to swap the stuffed knowledge base; no code change needed.
 
 > Endpoint defined in `section02/springai/src/main/java/com/eazybytes/springai/controller/ChatController.java`. Port `8080` is the Spring Boot default — override with `--server.port=9090` if it conflicts.
 
