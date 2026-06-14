@@ -2,7 +2,7 @@
 
 A personal learning path for **Spring AI**, organized as one branch per lesson. Each branch builds on the previous one and contains a single self-contained Spring Boot project.
 
-> 👉 **You are on the `section2.0` branch.** First lesson of *Spring AI Essentials*: **Message Roles in LLMs** — the `system` prompt steers the model into a specific persona, while the `user` prompt carries the question. Built on top of [`section1`](https://github.com/david-iaggbs/spring-ai/tree/section1) and still running entirely on a **local LLM via [Ollama](https://ollama.com)** through Spring AI's `ChatClient`.
+> 👉 **You are on the `section2.1` branch.** Second lesson of *Spring AI Essentials*: **Spring AI Defaults** — move the repeated `system`/`user` prompts out of the controller and onto the `ChatClient.Builder` via `defaultSystem(...)` / `defaultUser(...)`. The controller shrinks to just `chatClient.prompt().user(message)…`. Built on top of [`section2.0`](https://github.com/david-iaggbs/spring-ai/tree/section2.0) and still running entirely on a **local LLM via [Ollama](https://ollama.com)**.
 
 ---
 
@@ -16,8 +16,8 @@ The "Spring AI Essentials" course section is split into incremental sub-branches
 
 | Branch | Concept |
 |--------|---------|
-| **`section2.0`** *(you are here)* | **Message Roles** — `system` vs `user` |
-| `section2.1` | Spring AI Defaults (`defaultSystem`, `defaultUser`, `defaultOptions`) |
+| `section2.0` | Message Roles — `system` vs `user` |
+| **`section2.1`** *(you are here)* | **Spring AI Defaults** — `defaultSystem`, `defaultUser` |
 | `section2.2` | Prompt Templates (`.st` files) |
 | `section2.3` | Prompt Stuffing |
 | `section2.4` | Built-in Advisors (`SimpleLoggerAdvisor`) |
@@ -26,19 +26,19 @@ The "Spring AI Essentials" course section is split into incremental sub-branches
 | `section2.7` | Streaming Responses (`Flux<String>`) |
 | `section2.8` | Structured Output (Bean / List / Map / `ParameterizedTypeReference`) |
 
-### This branch — `section2.0`
+### This branch — `section2.1`
 
-**Purpose**: introduce **Message Roles**. The `ChatController` no longer sends only the raw user message; it explicitly sets a **system** role describing the assistant's persona ("internal IT helpdesk assistant") and a **user** role carrying the employee's question.
+**Purpose**: introduce **Spring AI Defaults**. Instead of every controller hard-coding the same `system` prompt, the assistant persona is configured **once** on a `ChatClient` `@Bean` and reused everywhere. The `ChatController` drops the inline `.system(...)` from `section2.0` and only contributes the per-request `user(message)`.
 
-**What it adds on top of the [`section1`](https://github.com/david-iaggbs/spring-ai/tree/section1) baseline**:
-- Drops `section01/ollama/` and scaffolds a new module `section02/springai/` (`com.eazybytes.springai`).
-- `ChatController` uses `chatClient.prompt().system(IT_HELPDESK_SYSTEM_PROMPT).user(message).call().content()` instead of the bare `chatClient.prompt(message).call().content()` from `section1`.
-- Adds a **three-layer test pyramid** per controller:
-  - **Unit** — `ChatControllerTest` (`@WebMvcTest` + deep-stubbed `ChatClient.Builder`).
-  - **Integration** — `ChatControllerIntegrationTest` (`@SpringBootTest` with a `@TestConfiguration` overriding the auto-configured prototype `ChatClient.Builder` with a singleton mock).
-  - **E2E** — `ChatControllerOllamaIT` (`@Testcontainers` + real `OllamaContainer`, `@Tag("e2e")`, gated behind the `e2e` Maven profile).
+**What it adds on top of the [`section2.0`](https://github.com/david-iaggbs/spring-ai/tree/section2.0) baseline**:
+- New `config/ChatClientConfig.java` exposing a singleton `ChatClient` `@Bean` built from the auto-configured `ChatClient.Builder` with `defaultSystem(HR_ASSISTANT_SYSTEM_PROMPT)` + `defaultUser(DEFAULT_USER_MESSAGE)`. The persona switches from *IT helpdesk* (section2.0) to *HR assistant* — easier to demo "defaults are central, swap them in one place."
+- `ChatController` now injects the `ChatClient` bean directly (singleton, not built from the builder at construction time) and shrinks to `chatClient.prompt().user(message).call().content()`.
+- Tests adapt to the new wiring:
+  - **Unit** — `@MockitoBean ChatClient` (singleton bean → trivially mockable, no more deep-stub builder chain).
+  - **Integration** — extra assertion that `ChatClientConfig` calls `defaultSystem(HR_ASSISTANT_SYSTEM_PROMPT)` and `defaultUser(DEFAULT_USER_MESSAGE)` on the builder during bean creation.
+  - **E2E** — real HR-scope question (`"How many vacation days do I get?"`) against the Ollama Testcontainer.
 
-Run `git diff section1 section2.0` to see exactly what this lesson costs in code, config and tests.
+Run `git diff section2.0 section2.1` to see exactly what this lesson costs in code, config and tests.
 
 ### Conventions shared across all branches
 
@@ -107,25 +107,25 @@ The app exposes a single endpoint:
 
 | Method | URL | Query param | Response |
 |--------|-----|-------------|----------|
-| `GET`  | `http://localhost:8080/api/chat` | `message` (required) | `text/plain` — the LLM's reply, scoped to the IT-helpdesk persona |
+| `GET`  | `http://localhost:8080/api/chat` | `message` (required) | `text/plain` — the LLM's reply, scoped to the **HR** persona configured as the default system prompt |
 
 **With curl:**
 
 ```bash
-curl "http://localhost:8080/api/chat?message=I%20forgot%20my%20password"
+curl "http://localhost:8080/api/chat?message=How%20many%20vacation%20days%20do%20I%20get?"
 ```
 
 **With httpie:**
 
 ```bash
-http ":8080/api/chat" message=="I forgot my password"
+http ":8080/api/chat" message=="How many vacation days do I get?"
 ```
 
-**In a browser:** open <http://localhost:8080/api/chat?message=I%20forgot%20my%20password>
+**In a browser:** open <http://localhost:8080/api/chat?message=How%20many%20vacation%20days%20do%20I%20get?>
 
 **With Postman:** import `SpringAI.postman_collection.json` from the repo root.
 
-Because the system prompt constrains the assistant to IT support, off-topic questions ("recommend me a pizza recipe") will be politely declined — that's the whole point of the **system role**.
+The system prompt is now defined **once** in `ChatClientConfig.HR_ASSISTANT_SYSTEM_PROMPT`. Off-topic questions ("recommend me a pizza recipe") will be politely declined — same behaviour as section2.0, but the persona lives in config, not the controller.
 
 > Endpoint defined in `section02/springai/src/main/java/com/eazybytes/springai/controller/ChatController.java`. Port `8080` is the Spring Boot default — override with `--server.port=9090` if it conflicts.
 

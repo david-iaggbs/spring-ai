@@ -46,9 +46,9 @@ class ChatControllerOllamaIT {
 	MockMvc mvc;
 
 	@Test
-	void real_model_responds_to_helpdesk_question() throws Exception {
+	void real_model_responds_to_hr_question_using_default_system_prompt() throws Exception {
 		mvc.perform(get("/api/chat")
-						.param("message", "I forgot my password — what should I do?"))
+						.param("message", "How many vacation days do I get?"))
 				.andExpect(status().isOk())
 				.andExpect(content().string(not(emptyOrNullString())));
 	}

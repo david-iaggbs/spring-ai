@@ -1,5 +1,6 @@
 package com.eazybytes.springai.controller;
 
+import com.eazybytes.springai.config.ChatClientConfig;
 import org.junit.jupiter.api.Test;
 import org.mockito.Answers;
 import org.mockito.Mockito;
@@ -13,6 +14,7 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -43,18 +45,29 @@ class ChatControllerIntegrationTest {
 	}
 
 	@Test
+	void chat_client_bean_is_built_with_default_system_and_user_prompts() {
+		// Forces ChatClientConfig.chatClient(...) to be initialised; the
+		// resulting ChatClient is a deep-stub mock built from the test builder.
+		verify(chatClientBuilder).defaultSystem(ChatClientConfig.HR_ASSISTANT_SYSTEM_PROMPT);
+		verify(chatClientBuilder.defaultSystem(ChatClientConfig.HR_ASSISTANT_SYSTEM_PROMPT))
+				.defaultUser(ChatClientConfig.DEFAULT_USER_MESSAGE);
+	}
+
+	@Test
 	void full_context_loads_and_routes_chat_request() throws Exception {
-		when(chatClientBuilder.build()
+		when(chatClientBuilder
+				.defaultSystem(any(String.class))
+				.defaultUser(any(String.class))
+				.build()
 				.prompt()
-				.system(any(String.class))
 				.user(any(String.class))
 				.call()
 				.content())
-				.thenReturn("Helpdesk reply");
+				.thenReturn("HR reply");
 
-		mvc.perform(get("/api/chat").param("message", "How do I unlock my account?"))
+		mvc.perform(get("/api/chat").param("message", "Tell me about the leave policy"))
 				.andExpect(status().isOk())
-				.andExpect(content().string("Helpdesk reply"));
+				.andExpect(content().string("HR reply"));
 	}
 
 }

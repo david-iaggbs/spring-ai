@@ -20,21 +20,20 @@ class ChatControllerTest {
 	MockMvc mvc;
 
 	@MockitoBean(answers = Answers.RETURNS_DEEP_STUBS)
-	ChatClient.Builder chatClientBuilder;
+	ChatClient chatClient;
 
 	@Test
-	void returns_chat_response_using_system_and_user_roles() throws Exception {
-		when(chatClientBuilder.build()
+	void returns_chat_response_relying_on_default_system_prompt() throws Exception {
+		when(chatClient
 				.prompt()
-				.system(ChatController.IT_HELPDESK_SYSTEM_PROMPT)
-				.user("Reset my password")
+				.user("How many leave days do I have?")
 				.call()
 				.content())
-				.thenReturn("Sure — open the self-service portal at /reset.");
+				.thenReturn("You have 20 paid leave days remaining.");
 
-		mvc.perform(get("/api/chat").param("message", "Reset my password"))
+		mvc.perform(get("/api/chat").param("message", "How many leave days do I have?"))
 				.andExpect(status().isOk())
-				.andExpect(content().string("Sure — open the self-service portal at /reset."));
+				.andExpect(content().string("You have 20 paid leave days remaining."));
 	}
 
 }
