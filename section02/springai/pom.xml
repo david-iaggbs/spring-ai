@@ -9,10 +9,10 @@
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>com.eazybytes</groupId>
-	<artifactId>ollama</artifactId>
+	<artifactId>springai</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
-	<name>ollama</name>
-	<description>Demo project of Spring AI and Ollama</description>
+	<name>springai</name>
+	<description>Spring AI essentials - message roles, advisors, structured output (Ollama)</description>
 	<url/>
 	<licenses>
 		<license/>

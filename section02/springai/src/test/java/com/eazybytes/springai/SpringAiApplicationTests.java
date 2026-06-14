@@ -1,4 +1,4 @@
-package com.eazybytes.ollama;
+package com.eazybytes.springai;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -7,7 +7,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 		"spring.ai.ollama.init.pull-model-strategy=never",
 		"spring.ai.ollama.init.chat.include=false"
 })
-class OllamaApplicationTests {
+class SpringAiApplicationTests {
 
 	@Test
 	void contextLoads() {

@@ -1,4 +1,4 @@
-package com.eazybytes.ollama.controller;
+package com.eazybytes.springai.controller;
 
 import org.junit.jupiter.api.Test;
 import org.mockito.Answers;
@@ -23,13 +23,18 @@ class ChatControllerTest {
 	ChatClient.Builder chatClientBuilder;
 
 	@Test
-	void returns_chat_response() throws Exception {
-		when(chatClientBuilder.build().prompt("Hello").call().content())
-				.thenReturn("Hi there!");
+	void returns_chat_response_using_system_and_user_roles() throws Exception {
+		when(chatClientBuilder.build()
+				.prompt()
+				.system(ChatController.IT_HELPDESK_SYSTEM_PROMPT)
+				.user("Reset my password")
+				.call()
+				.content())
+				.thenReturn("Sure — open the self-service portal at /reset.");
 
-		mvc.perform(get("/api/chat").param("message", "Hello"))
+		mvc.perform(get("/api/chat").param("message", "Reset my password"))
 				.andExpect(status().isOk())
-				.andExpect(content().string("Hi there!"));
+				.andExpect(content().string("Sure — open the self-service portal at /reset."));
 	}
 
 }

@@ -1,4 +1,4 @@
-package com.eazybytes.ollama.controller;
+package com.eazybytes.springai.controller;
 
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
@@ -46,9 +46,9 @@ class ChatControllerOllamaIT {
 	MockMvc mvc;
 
 	@Test
-	void real_model_responds() throws Exception {
+	void real_model_responds_to_helpdesk_question() throws Exception {
 		mvc.perform(get("/api/chat")
-						.param("message", "Reply with the single word: pong"))
+						.param("message", "I forgot my password — what should I do?"))
 				.andExpect(status().isOk())
 				.andExpect(content().string(not(emptyOrNullString())));
 	}
