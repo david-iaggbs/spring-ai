@@ -2,7 +2,7 @@
 
 A personal learning path for **Spring AI**, organized as one branch per lesson. Each branch builds on the previous one and contains a single self-contained Spring Boot project.
 
-> 👉 **You are on the `section4` branch.** *Chat Memory*: by default a `ChatClient` is stateless — every request starts from a blank slate. This branch makes the assistant **remember the conversation**: a `MessageChatMemoryAdvisor` backed by a `JdbcChatMemoryRepository` (H2) transparently loads the prior turns for a conversation, prepends them to the prompt, and saves the new exchange back. The `username` HTTP header is the conversation id, so each user gets an isolated, **persistent** history that survives app restarts. Built on top of [`section2.8`](https://github.com/david-iaggbs/spring-ai/tree/section2.8) and still running entirely on a **local LLM via [Ollama](https://ollama.com)**.
+> 👉 **You are on the `section5` branch.** *RAG*: a `ChatClient` only knows what the model was trained on. This branch makes the assistant **answer from your own documents and from the live web**: `HRPolicyLoader` ingests a PDF into a Qdrant vector store at startup; `RAGController` exposes three endpoints that show the RAG journey — manual similarity search → Spring AI's `RetrievalAugmentationAdvisor` → live web retrieval via a custom `WebSearchDocumentRetriever` backed by the Tavily API. A `PIIMaskingDocumentPostProcessor` redacts emails and phone numbers from retrieved chunks before they reach the model. Built on top of [`section4`](https://github.com/david-iaggbs/spring-ai/tree/section4) and switched to **OpenAI** (`gpt-4.1-mini`).
 
 ---
 
@@ -10,40 +10,41 @@ A personal learning path for **Spring AI**, organized as one branch per lesson. 
 
 The repository uses **one branch per lesson**. Each branch contains a single Maven project under `sectionNN/<project>/` so the diff between branches shows exactly what each lesson introduces. Switch lessons with `git checkout <branch>`.
 
-### This branch — `section4`
+### This branch — `section5`
 
-**Purpose**: introduce **Chat Memory**. Every lesson so far treated each request as independent — the model never knew what you asked a moment ago. This branch wires Spring AI's chat-memory stack so the assistant carries context across requests within a conversation.
+**Purpose**: introduce **Retrieval-Augmented Generation (RAG)**. By default the model answers from its training data alone — it knows nothing about your company policies, your latest docs, or today's news. This branch shows how to bridge that gap: load external knowledge into a vector store, retrieve the most relevant chunks at query time, and inject them into the prompt so the model answers from *your* data.
 
-**What it adds on top of the [`section2.8`](https://github.com/david-iaggbs/spring-ai/tree/section2.8) baseline** — a fresh `section04/springai` module (dropping `section02/springai`):
+**What it adds on top of the [`section4`](https://github.com/david-iaggbs/spring-ai/tree/section4) baseline** — a fresh `section05/springai` module (dropping `section04/springai`):
 
-- **`config/ChatMemoryChatClientConfig.java`** — builds the memory stack in three layers:
+- **`rag/HRPolicyLoader.java`** — `@PostConstruct` component that reads `Eazybytes_HR_Policies.pdf` with `TikaDocumentReader`, splits it into 200-token chunks with `TokenTextSplitter`, and stores them in Qdrant at startup. Runs once per app start; the vector store persists across restarts.
 
-  | Layer | Type | Role |
-  |-------|------|------|
-  | Storage | `JdbcChatMemoryRepository` | Auto-configured by the JDBC starter; persists one row per message in `SPRING_AI_CHAT_MEMORY` (H2). |
-  | Policy  | `MessageWindowChatMemory` (`maxMessages(10)`) | Keeps only the most recent 10 messages per conversation so the prompt can't grow without bound. |
-  | Plumbing | `MessageChatMemoryAdvisor` | On every call, loads the conversation's prior messages, prepends them to the prompt, and saves the new user + assistant pair back. |
+- **`rag/WebSearchDocumentRetriever.java`** — a custom `DocumentRetriever` that calls the Tavily Search API, maps each result into a Spring AI `Document` (with `title`, `url`, and relevance `score` metadata), and returns the top-N hits. Reads `TAVILY_SEARCH_API_KEY` from the environment.
 
-  The single `ChatClient` bean sets no persona — the lesson is the memory round-trip, so the assistant answers freely (e.g. "What is my name?") rather than refusing. A `SimpleLoggerAdvisor` is also attached so you can watch the prior turns being stitched into each prompt at DEBUG.
+- **`rag/PIIMaskingDocumentPostProcessor.java`** — a `DocumentPostProcessor` that runs regex patterns over every retrieved chunk and replaces emails with `[REDACTED_EMAIL]` and phone numbers with `[REDACTED_PHONE]` before the chunks reach the model prompt.
 
-- **`controller/ChatMemoryController.java`** — one endpoint:
+- **`rag/RandomDataLoader.java`** — a commented-out (`// @Component`) loader that seeds random sentences into Qdrant; left in the codebase for instructional reference. Uncomment `@Component` to activate it.
 
-  | Endpoint | Inputs | Returns |
-  |----------|--------|---------|
-  | `GET /api/chat-memory` | `username` **header** (→ `CONVERSATION_ID`), `message` query param | `text/plain` — a reply that takes the conversation history into account |
+- **`config/WebSearchRAGChatClientConfig.java`** — builds a second named `ChatClient` bean (`webSearchRAGChatClient`) that stacks `SimpleLoggerAdvisor` + `MessageChatMemoryAdvisor` + `TokenUsageAuditAdvisor` + `RetrievalAugmentationAdvisor`. The `RetrievalAugmentationAdvisor` wires in the custom `WebSearchDocumentRetriever` so every prompt is automatically enriched with live web results.
 
-  The `username` header is passed per call via `advisors(spec -> spec.param(CONVERSATION_ID, username))`, so one stateless `ChatClient` serves many concurrent users — each with a fully isolated history.
+- **`controller/RAGController.java`** — three endpoints under `/api/rag`:
 
-- **`resources/schema/schema-h2db.sql`** — idempotent (`CREATE … IF NOT EXISTS`) H2 DDL for the chat-memory table, run on startup. Idempotency keeps it safe to re-run against the **file-based** H2 database, so history survives restarts.
+  | Endpoint | `ChatClient` | What it demonstrates |
+  |----------|-------------|----------------------|
+  | `GET /api/rag/random/chat` | `chatMemoryChatClient` | Memory-only chat (manual vector search shown but commented out — compare approaches in the source) |
+  | `GET /api/rag/document/chat` | `chatMemoryChatClient` | Memory-only chat with the HR system prompt (manual similarity search commented out — activate to see document-grounded answers) |
+  | `GET /api/rag/web-search/chat` | `webSearchRAGChatClient` | Live web retrieval via `RetrievalAugmentationAdvisor` + `WebSearchDocumentRetriever` |
 
-- **New dependencies**: `spring-ai-starter-model-chat-memory-repository-jdbc` and `com.h2database:h2`.
+  All three endpoints accept `username` **header** (→ `CONVERSATION_ID`) and `message` query param.
 
-- **Tests** (same three-tier pyramid as the previous branches):
-  - **Unit** — `ChatMemoryControllerTest` (`@WebMvcTest`) stubs a deep-stub `ChatClient` and asserts the reply is returned; also asserts a missing `username` header is a `400`.
-  - **Integration** — `ChatMemoryControllerIntegrationTest` (`@SpringBootTest`, mocked `ChatClient`, isolated in-memory H2) **captures the per-call advisor customizer** and replays it to verify the controller binds `CONVERSATION_ID` to the `username` header value.
-  - **E2E** — `ChatMemoryControllerOllamaIT` boots a real Ollama Testcontainer and, after a turn, **queries `ChatMemory` directly** to prove the user + assistant messages were persisted and retrievable by conversation id — a deterministic check that doesn't depend on what a 1 B model actually says. A two-turn "both succeed" test covers the happy path; the aspirational *recall* test (model answers using a fact from an earlier turn) is `@Disabled` because `llama3.2:1b` is too small to recall reliably — point the model at e.g. `llama3.1:8b` to re-enable.
+- **`config/ChatClientConfig.java`** *(carried from section04/main)* — base `ChatClient` bean with `gpt-4.1-mini`, `TokenUsageAuditAdvisor`, and a default HR-assistant system prompt.
 
-Run `git diff section2.8 section4` to see exactly what this lesson costs in code, config and tests.
+- **`compose.yml`** — Qdrant service (`qdrant/qdrant:latest`, ports 6333/6334). Spring Boot's Docker Compose integration starts it automatically when you run the app — no separate `docker-compose up` needed.
+
+- **New dependencies**: `spring-ai-rag`, `spring-ai-advisors-vector-store`, `spring-ai-starter-vector-store-qdrant`, `spring-ai-tika-document-reader`, `spring-boot-docker-compose`.
+
+- **Switch from Ollama to OpenAI**: `pom.xml` now declares `spring-ai-starter-model-openai`; the model is `gpt-4.1-mini` configured in `ChatClientConfig`. Set `OPENAI_API_KEY` in the environment before running.
+
+Run `git diff section4 section5` to see exactly what this lesson costs in code, config and dependencies.
 
 ### Conventions shared across all branches
 
@@ -51,132 +52,103 @@ Run `git diff section2.8 section4` to see exactly what this lesson costs in code
 - **Java**: 21+ (`<java.version>21</java.version>` in every `pom.xml`).
 - **Spring Boot**: 3.5.x.
 - **Package root**: `com.eazybytes.<project>` (e.g. `com.eazybytes.springai`).
-- **REST base path**: `/api` (class-level `@RequestMapping("/api")`), with one endpoint per lesson.
+- **REST base path**: `/api` (class-level `@RequestMapping("/api")`), one controller per lesson concept.
 - **Default port**: `8080` (override with `--server.port=<port>` at runtime).
-- **Test pyramid**: every controller ships **unit** (`@WebMvcTest`), **integration** (`@SpringBootTest` with a mocked `ChatClient`), and **e2e** (`@Tag("e2e")` Testcontainers IT, gated behind the `e2e` Maven profile).
+- **AI provider**: section0–section4 use **Ollama** (local, no API key); section5 onward use **OpenAI** (`OPENAI_API_KEY` required).
 
 ---
 
-## 🚀 How to Run (section04/springai)
+## 🚀 How to Run (section05/springai)
 
 ### Prerequisites
 
 | Tool | Why | Notes |
 |------|-----|-------|
-| **JDK 21+** | Spring Boot 3.5 requires Java 21 (`<java.version>21</java.version>`) | Temurin / Zulu / Oracle |
+| **JDK 21+** | Spring Boot 3.5 requires Java 21 | Temurin / Zulu / Oracle |
 | **Maven Wrapper** | Builds and runs the app | Ships with the project (`./mvnw`) — no global install needed |
-| **Podman** (or Docker) | Runs the Ollama container | Tested with Podman; Docker works with the same commands |
-| **Ollama runtime** | Serves the LLM at `http://localhost:11434` | Run as a container (see step 1) |
-| **An LLM model** | `application.properties` references `llama3.2:1b` (~1.3 GB) | Pulled into Ollama in step 1 |
+| **Docker** (or Podman) | Qdrant container | Spring Boot starts it automatically via `compose.yml` |
+| **`OPENAI_API_KEY`** | OpenAI chat + embedding calls | `gpt-4.1-mini` for chat; `text-embedding-3-small` for vector search |
+| **`TAVILY_SEARCH_API_KEY`** | Web-search RAG endpoint only | Free tier at [tavily.com](https://tavily.com); skip if you only use the document chat endpoint |
 
-No API keys, vector DBs, or external services are needed. Conversation memory uses an **embedded H2 database** (file `~/chatmemory.mv.db`) that Spring Boot creates automatically — nothing to install.
-
-### 1. Start Ollama in a container (Podman)
+### 1. Set environment variables
 
 ```bash
-# create a named volume so models persist across restarts
-podman volume create ollama
-
-# run the Ollama server, exposing it on localhost:11434
-podman run -d --name ollama \
-  -p 11434:11434 \
-  -v ollama:/root/.ollama \
-  docker.io/ollama/ollama
-
-# pull the model the app is configured to use
-podman exec -it ollama ollama pull llama3.2:1b
-```
-
-> On Apple Silicon, the container runs CPU-only (Metal GPU acceleration is not available inside Podman/Docker). For small models like `llama3.2:1b` this is fine; for larger models, prefer a native Ollama install.
->
-> On Linux with an NVIDIA GPU, add `--device nvidia.com/gpu=all` (Podman) or `--gpus=all` (Docker).
-
-To verify it's up:
-
-```bash
-curl http://localhost:11434/api/tags
+export OPENAI_API_KEY=sk-...
+export TAVILY_SEARCH_API_KEY=tvly-...   # only needed for /api/rag/web-search/chat
 ```
 
 ### 2. Start the Spring Boot app
 
 ```bash
-cd section04/springai
+cd section05/springai
 ./mvnw spring-boot:run
 ```
 
-The app starts on `http://localhost:8080` and creates the `SPRING_AI_CHAT_MEMORY` table in `~/chatmemory.mv.db` on first run.
+Spring Boot detects `compose.yml` and **starts Qdrant automatically** before the app context is created. On first run, `HRPolicyLoader` reads `Eazybytes_HR_Policies.pdf`, splits it into chunks, and stores them in Qdrant — this takes a few seconds. Subsequent runs skip the re-ingestion (Qdrant persists its data inside the container volume while it's running; restart the container to reset it).
 
-### 3. Have a conversation with memory
+The app starts on `http://localhost:8080`. The H2 console is available at `http://localhost:8080/h2-console` (JDBC URL: `jdbc:h2:file:~/chatmemory`, user: `madan`, password: `12345`).
 
-The app exposes one endpoint:
+> If you use Podman, point Spring Boot at the Podman socket:
+> ```bash
+> podman machine start
+> export DOCKER_HOST="unix://$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}')"
+> ./mvnw spring-boot:run
+> ```
 
-| Method | URL | Inputs | Response |
-|--------|-----|--------|----------|
-| `GET`  | `http://localhost:8080/api/chat-memory` | `username` **header** (conversation id), `message` query param | `text/plain` — a reply that remembers earlier turns from the same `username` |
+### 3. Query the RAG endpoints
 
-**With curl** — two requests sharing the same `username` show memory at work:
+The app exposes three new endpoints under `/api/rag`, all accepting `username` header and `message` query param:
+
+| Method | URL | What happens |
+|--------|-----|--------------|
+| `GET` | `/api/rag/random/chat` | Memory-backed chat; manual vector search commented out (see source for the pattern) |
+| `GET` | `/api/rag/document/chat` | Memory-backed chat with HR system prompt; uncomment similarity search in `RAGController` to ground answers in the PDF |
+| `GET` | `/api/rag/web-search/chat` | **Full RAG**: `RetrievalAugmentationAdvisor` retrieves live web results via Tavily and injects them into the prompt automatically |
+
+**With curl:**
 
 ```bash
-# Turn 1 — state a fact.
+# Ask about the HR policy PDF (activate manual search in RAGController to see grounded answers)
 curl -H "username: madan03" \
-  "http://localhost:8080/api/chat-memory?message=My%20name%20is%20Madan.%20Please%20remember%20it."
+  "http://localhost:8080/api/rag/document/chat?message=What%20is%20the%20leave%20policy%3F"
 
-# Turn 2 — the model recalls it from history (use a capable model for reliable recall).
+# Ask a current-events question answered from the live web
 curl -H "username: madan03" \
-  "http://localhost:8080/api/chat-memory?message=What%20is%20my%20name%3F"
+  "http://localhost:8080/api/rag/web-search/chat?message=What%20is%20the%20latest%20Java%20LTS%20version%3F"
 ```
 
-Use a **different** `username` and the history is empty — conversations are fully isolated.
-
-**With Postman:** import `SpringAI.postman_collection.json` from the repo root (see the **Section04 → ChatMemory** request).
-
-> **Persistence:** memory lives in file-based H2 (`~/chatmemory`), so a conversation survives an app restart. Delete `~/chatmemory.mv.db` to wipe all history. The schema DDL (`classpath:/schema/schema-h2db.sql`) is idempotent, so `initialize-schema=always` is safe across restarts.
-
-> **Seeing memory in action:** the advisors log at DEBUG (`logging.level.org.springframework.ai.chat.client.advisor=DEBUG` in `application.properties`), so you can watch the prior turns being stitched into each prompt.
+**Seeing RAG in action:** set `logging.level.org.springframework.ai.chat.client.advisor=DEBUG` (already on in `application.properties`) to watch retrieved document chunks being stitched into each prompt.
 
 ### Configuration
 
-All settings live in `section04/springai/src/main/resources/application.properties`:
+All settings live in `section05/springai/src/main/resources/application.properties`:
 
 ```properties
-# Model
-spring.ai.model.chat=ollama
-spring.ai.ollama.chat.options.model=llama3.2:1b
+# AI provider
+spring.ai.openai.api-key=${OPENAI_API_KEY}
 
-# Conversation memory: file-based H2 so history survives restarts
+# Conversation memory: file-based H2
 spring.datasource.url=jdbc:h2:file:~/chatmemory;AUTO_SERVER=true
 spring.ai.chat.memory.repository.jdbc.initialize-schema=always
 spring.ai.chat.memory.repository.jdbc.schema=classpath:/schema/schema-h2db.sql
+
+# Qdrant vector store (started via compose.yml)
+spring.ai.vectorstore.qdrant.initialize-schema=true
+spring.ai.vectorstore.qdrant.host=localhost
+spring.ai.vectorstore.qdrant.port=6334
+spring.ai.vectorstore.qdrant.collection-name=eazybytes
 ```
 
-Swap `llama3.2:1b` for any other model you have pulled in Ollama (e.g. `llama3.2:3b`, `mistral`, `qwen2.5`) — a larger model recalls facts from history far more reliably.
+To use a different OpenAI embedding model, uncomment `spring.ai.openai.embedding.options.model=text-embedding-3-small` in `application.properties`.
 
 ### Running the tests
 
-Three layers of tests are wired up:
-
-**Fast tests (default)** — unit slice (`@WebMvcTest`), integration (`@SpringBootTest` with a mocked `ChatClient` and isolated in-memory H2), and a context-load test. No infrastructure needed.
-
 ```bash
-cd section04/springai
+cd section05/springai
 ./mvnw test
 ```
 
-Runs in a few seconds and is safe to run in CI without Podman/Docker.
-
-**End-to-end test (`e2e` profile)** — boots an Ollama container via Testcontainers, pulls `llama3.2:1b`, drives `/api/chat-memory`, and asserts the conversation was persisted to (an in-memory) H2.
-
-```bash
-# 1. Start the Podman machine and expose its socket (one-time per shell session)
-podman machine start
-export DOCKER_HOST="unix://$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}')"
-export TESTCONTAINERS_RYUK_DISABLED=true   # Ryuk isn't supported on rootless Podman
-
-# 2. Run the e2e suite
-./mvnw test -Pe2e
-```
-
-First run takes ~30 s (image + model pull); subsequent runs are faster. The IT class is tagged `e2e` and excluded from the default Surefire run.
+The default test is a context-load check (`SpringAiApplicationTests`). It requires `OPENAI_API_KEY` to be set and Docker/Podman running (Spring Boot's Docker Compose integration starts Qdrant automatically, including during tests).
 
 ---
 
