@@ -2,7 +2,7 @@
 
 A personal learning path for **Spring AI**, organized as one branch per lesson. Each branch builds on the previous one and contains a single self-contained Spring Boot project.
 
-> 👉 **You are on the `section2.8` branch.** Ninth lesson of *Spring AI Essentials*: **Structured Output** — stop parsing free-form text. `ChatClient.call().entity(...)` and friends coerce the LLM's reply into a typed Java object (`Bean`, `List<String>`, `Map`, `List<POJO>`) by appending JSON-schema or list-format instructions to the prompt and deserializing the response automatically. Built on top of [`section2.7`](https://github.com/david-iaggbs/spring-ai/tree/section2.7) and still running entirely on a **local LLM via [Ollama](https://ollama.com)**. This is the **final branch** of the *Spring AI Essentials* learning path.
+> 👉 **You are on the `section4` branch.** *Chat Memory*: by default a `ChatClient` is stateless — every request starts from a blank slate. This branch makes the assistant **remember the conversation**: a `MessageChatMemoryAdvisor` backed by a `JdbcChatMemoryRepository` (H2) transparently loads the prior turns for a conversation, prepends them to the prompt, and saves the new exchange back. The `username` HTTP header is the conversation id, so each user gets an isolated, **persistent** history that survives app restarts. Built on top of [`section2.8`](https://github.com/david-iaggbs/spring-ai/tree/section2.8) and still running entirely on a **local LLM via [Ollama](https://ollama.com)**.
 
 ---
 
@@ -10,44 +10,40 @@ A personal learning path for **Spring AI**, organized as one branch per lesson. 
 
 The repository uses **one branch per lesson**. Each branch contains a single Maven project under `sectionNN/<project>/` so the diff between branches shows exactly what each lesson introduces. Switch lessons with `git checkout <branch>`.
 
-### Section 2 — Spring AI Essentials (incremental sub-branches)
+### This branch — `section4`
 
-The "Spring AI Essentials" course section is split into incremental sub-branches `section2.0` → `section2.8`. Each one **drops the previous section's module**, adds **one concept**, ships the full **unit + integration + e2e** test pyramid, and stays runnable end-to-end.
+**Purpose**: introduce **Chat Memory**. Every lesson so far treated each request as independent — the model never knew what you asked a moment ago. This branch wires Spring AI's chat-memory stack so the assistant carries context across requests within a conversation.
 
-| Branch | Concept |
-|--------|---------|
-| `section2.0` | Message Roles — `system` vs `user` |
-| `section2.1` | Spring AI Defaults — `defaultSystem`, `defaultUser` |
-| `section2.2` | Prompt Templates — external `.st` files, `param(...)` binding |
-| `section2.3` | Prompt Stuffing — domain knowledge inside the `system` prompt |
-| `section2.4` | Built-in Advisors — `SimpleLoggerAdvisor` via `defaultAdvisors(...)` |
-| `section2.5` | Custom Advisors — `TokenUsageAuditAdvisor` implementing `CallAdvisor` |
-| `section2.6` | ChatOptions — global `defaultOptions(...)` + per-call `OllamaOptions` override |
-| `section2.7` | Streaming Responses — `Flux<String>` over `text/event-stream` |
-| **`section2.8`** *(you are here)* | **Structured Output** — `entity(Class)`, `ListOutputConverter`, `MapOutputConverter`, `ParameterizedTypeReference` |
+**What it adds on top of the [`section2.8`](https://github.com/david-iaggbs/spring-ai/tree/section2.8) baseline** — a fresh `section04/springai` module (dropping `section02/springai`):
 
-### This branch — `section2.8`
+- **`config/ChatMemoryChatClientConfig.java`** — builds the memory stack in three layers:
 
-**Purpose**: introduce **Structured Output**. So far every endpoint returned plain text. This branch adds a controller that calls `.entity(...)` on `ChatClient`, telling Spring AI which Java type the response should be deserialized into. Spring AI appends format instructions to the prompt (a JSON schema for `Bean` / `List<POJO>`, a comma-separated-list instruction for `ListOutputConverter`, a generic JSON object instruction for `MapOutputConverter`), then runs the LLM's reply through Jackson to populate the target type.
+  | Layer | Type | Role |
+  |-------|------|------|
+  | Storage | `JdbcChatMemoryRepository` | Auto-configured by the JDBC starter; persists one row per message in `SPRING_AI_CHAT_MEMORY` (H2). |
+  | Policy  | `MessageWindowChatMemory` (`maxMessages(10)`) | Keeps only the most recent 10 messages per conversation so the prompt can't grow without bound. |
+  | Plumbing | `MessageChatMemoryAdvisor` | On every call, loads the conversation's prior messages, prepends them to the prompt, and saves the new user + assistant pair back. |
 
-**What it adds on top of the [`section2.7`](https://github.com/david-iaggbs/spring-ai/tree/section2.7) baseline**:
-- New record `model/CountryCities.java` (`country`, `cities`) used as the target POJO.
-- New `StructuredOutPutController` exposing four endpoints:
+  The single `ChatClient` bean sets no persona — the lesson is the memory round-trip, so the assistant answers freely (e.g. "What is my name?") rather than refusing. A `SimpleLoggerAdvisor` is also attached so you can watch the prior turns being stitched into each prompt at DEBUG.
 
-  | Endpoint | Converter | Returns |
-  |----------|-----------|---------|
-  | `GET /api/chat-bean`      | `entity(CountryCities.class)`                                     | a single POJO |
-  | `GET /api/chat-list`      | `entity(LIST_CONVERTER)` (`ListOutputConverter`)                  | a `List<String>` |
-  | `GET /api/chat-map`       | `entity(MAP_CONVERTER)` (`MapOutputConverter`)                    | a `Map<String,Object>` |
-  | `GET /api/chat-bean-list` | `entity(COUNTRY_CITIES_LIST_TYPE)` (`ParameterizedTypeReference`) | a `List<CountryCities>` |
+- **`controller/ChatMemoryController.java`** — one endpoint:
 
-  The controller injects the singleton `ChatClient` from `ChatClientConfig` but **overrides the HR default system prompt** with `NEUTRAL_SYSTEM_PROMPT` per call, so off-topic schema-shaped requests aren't refused. Converters are exposed as `static final` constants so tests can reference the exact same instance.
-- Tests:
-  - **Unit** — `StructuredOutPutControllerTest` stubs each of the four `.entity(...)` overloads on a deep-stub `ChatClient` and asserts the JSON response shape.
-  - **Integration** — `StructuredOutPutControllerIntegrationTest` repeats the pattern with the full context loaded and adds a `verify(...).entity(<same converter instance>)` to lock in the converter wiring per endpoint.
-  - **E2E** — `StructuredOutPutControllerOllamaIT` runs the four endpoints against the Ollama Testcontainer and asserts `200 OK` — a successful response proves Spring AI was able to deserialize the model's reply into the requested Java type, which is the lesson here. The `List<POJO>` case is `@Disabled` because a 1 B-parameter model does not reliably emit a top-level JSON array of objects; bump the model to e.g. `llama3.1:8b` to re-enable.
+  | Endpoint | Inputs | Returns |
+  |----------|--------|---------|
+  | `GET /api/chat-memory` | `username` **header** (→ `CONVERSATION_ID`), `message` query param | `text/plain` — a reply that takes the conversation history into account |
 
-Run `git diff section2.7 section2.8` to see exactly what this lesson costs in code, config and tests.
+  The `username` header is passed per call via `advisors(spec -> spec.param(CONVERSATION_ID, username))`, so one stateless `ChatClient` serves many concurrent users — each with a fully isolated history.
+
+- **`resources/schema/schema-h2db.sql`** — idempotent (`CREATE … IF NOT EXISTS`) H2 DDL for the chat-memory table, run on startup. Idempotency keeps it safe to re-run against the **file-based** H2 database, so history survives restarts.
+
+- **New dependencies**: `spring-ai-starter-model-chat-memory-repository-jdbc` and `com.h2database:h2`.
+
+- **Tests** (same three-tier pyramid as the previous branches):
+  - **Unit** — `ChatMemoryControllerTest` (`@WebMvcTest`) stubs a deep-stub `ChatClient` and asserts the reply is returned; also asserts a missing `username` header is a `400`.
+  - **Integration** — `ChatMemoryControllerIntegrationTest` (`@SpringBootTest`, mocked `ChatClient`, isolated in-memory H2) **captures the per-call advisor customizer** and replays it to verify the controller binds `CONVERSATION_ID` to the `username` header value.
+  - **E2E** — `ChatMemoryControllerOllamaIT` boots a real Ollama Testcontainer and, after a turn, **queries `ChatMemory` directly** to prove the user + assistant messages were persisted and retrievable by conversation id — a deterministic check that doesn't depend on what a 1 B model actually says. A two-turn "both succeed" test covers the happy path; the aspirational *recall* test (model answers using a fact from an earlier turn) is `@Disabled` because `llama3.2:1b` is too small to recall reliably — point the model at e.g. `llama3.1:8b` to re-enable.
+
+Run `git diff section2.8 section4` to see exactly what this lesson costs in code, config and tests.
 
 ### Conventions shared across all branches
 
@@ -57,11 +53,11 @@ Run `git diff section2.7 section2.8` to see exactly what this lesson costs in co
 - **Package root**: `com.eazybytes.<project>` (e.g. `com.eazybytes.springai`).
 - **REST base path**: `/api` (class-level `@RequestMapping("/api")`), with one endpoint per lesson.
 - **Default port**: `8080` (override with `--server.port=<port>` at runtime).
-- **Test pyramid (from `section2.0` onward)**: every controller ships **unit** (`@WebMvcTest`), **integration** (`@SpringBootTest` with mocked `ChatClient.Builder`), and **e2e** (`@Tag("e2e")` Testcontainers IT, gated behind the `e2e` Maven profile).
+- **Test pyramid**: every controller ships **unit** (`@WebMvcTest`), **integration** (`@SpringBootTest` with a mocked `ChatClient`), and **e2e** (`@Tag("e2e")` Testcontainers IT, gated behind the `e2e` Maven profile).
 
 ---
 
-## 🚀 How to Run (section02/springai)
+## 🚀 How to Run (section04/springai)
 
 ### Prerequisites
 
@@ -73,7 +69,7 @@ Run `git diff section2.7 section2.8` to see exactly what this lesson costs in co
 | **Ollama runtime** | Serves the LLM at `http://localhost:11434` | Run as a container (see step 1) |
 | **An LLM model** | `application.properties` references `llama3.2:1b` (~1.3 GB) | Pulled into Ollama in step 1 |
 
-No API keys, vector DBs, or external services are needed for this branch — everything runs locally and offline.
+No API keys, vector DBs, or external services are needed. Conversation memory uses an **embedded H2 database** (file `~/chatmemory.mv.db`) that Spring Boot creates automatically — nothing to install.
 
 ### 1. Start Ollama in a container (Podman)
 
@@ -104,85 +100,71 @@ curl http://localhost:11434/api/tags
 ### 2. Start the Spring Boot app
 
 ```bash
-cd section02/springai
+cd section04/springai
 ./mvnw spring-boot:run
 ```
 
-The app starts on `http://localhost:8080`.
+The app starts on `http://localhost:8080` and creates the `SPRING_AI_CHAT_MEMORY` table in `~/chatmemory.mv.db` on first run.
 
-### 3. Send a chat request
+### 3. Have a conversation with memory
 
-The app exposes eight endpoints:
+The app exposes one endpoint:
 
-| Method | URL | Query params | Response |
-|--------|-----|-------------|----------|
-| `GET`  | `http://localhost:8080/api/chat`             | `message` (required) | `text/plain` — HR-persona reply using the default system prompt |
-| `GET`  | `http://localhost:8080/api/email`            | `customerName`, `customerMessage` (both required) | `text/plain` — a customer-service email draft, rendered from `userPromptTemplate.st` |
-| `GET`  | `http://localhost:8080/api/prompt-stuffing`  | `message` (required) | `text/plain` — answer grounded in the EazyBytes-Tech FAQ stuffed into `systemPromptTemplate.st` |
-| `GET`  | `http://localhost:8080/api/stream`           | `message` (required) | `text/event-stream` — tokens streamed live as the model generates them |
-| `GET`  | `http://localhost:8080/api/chat-bean`        | `message` (required) | `application/json` — a single `CountryCities` POJO |
-| `GET`  | `http://localhost:8080/api/chat-list`        | `message` (required) | `application/json` — a `List<String>` |
-| `GET`  | `http://localhost:8080/api/chat-map`         | `message` (required) | `application/json` — a `Map<String,Object>` |
-| `GET`  | `http://localhost:8080/api/chat-bean-list`   | `message` (required) | `application/json` — a `List<CountryCities>` |
+| Method | URL | Inputs | Response |
+|--------|-----|--------|----------|
+| `GET`  | `http://localhost:8080/api/chat-memory` | `username` **header** (conversation id), `message` query param | `text/plain` — a reply that remembers earlier turns from the same `username` |
 
-**With curl:**
+**With curl** — two requests sharing the same `username` show memory at work:
 
 ```bash
-# Section 2.1 — HR defaults.
-curl "http://localhost:8080/api/chat?message=How%20many%20vacation%20days%20do%20I%20get?"
+# Turn 1 — state a fact.
+curl -H "username: madan03" \
+  "http://localhost:8080/api/chat-memory?message=My%20name%20is%20Madan.%20Please%20remember%20it."
 
-# Section 2.2 — template-driven user prompt.
-curl "http://localhost:8080/api/email?customerName=Alice&customerMessage=My%20order%20arrived%20damaged."
-
-# Section 2.3 — answer from the stuffed FAQ.
-curl "http://localhost:8080/api/prompt-stuffing?message=What%20is%20your%20refund%20policy?"
-
-# Section 2.7 — watch tokens stream in real time (-N disables curl output buffering).
-curl -N "http://localhost:8080/api/stream?message=Tell%20me%20about%20parental%20leave"
-
-# Section 2.8 — structured output: get a typed JSON object back.
-curl "http://localhost:8080/api/chat-bean?message=Tell%20me%20the%20country%20France%20and%20three%20of%20its%20largest%20cities."
-curl "http://localhost:8080/api/chat-list?message=List%20three%20primary%20colours."
-curl "http://localhost:8080/api/chat-map?message=Give%20me%20an%20object%20with%20'country'%20and%20'capital'%20for%20France."
+# Turn 2 — the model recalls it from history (use a capable model for reliable recall).
+curl -H "username: madan03" \
+  "http://localhost:8080/api/chat-memory?message=What%20is%20my%20name%3F"
 ```
 
-**With Postman:** import `SpringAI.postman_collection.json` from the repo root.
+Use a **different** `username` and the history is empty — conversations are fully isolated.
 
-Both `.st` templates live under `section02/springai/src/main/resources/promptTemplates/`. Edit `systemPromptTemplate.st` to swap the stuffed knowledge base; no code change needed.
+**With Postman:** import `SpringAI.postman_collection.json` from the repo root (see the **Section04 → ChatMemory** request).
 
-> **Seeing the advisor in action:** by default `SimpleLoggerAdvisor` logs at DEBUG. To watch every request/response live, add this to `application.properties` (or pass it as `--logging.level.…=DEBUG` on the command line):
->
-> ```properties
-> logging.level.org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor=DEBUG
-> ```
+> **Persistence:** memory lives in file-based H2 (`~/chatmemory`), so a conversation survives an app restart. Delete `~/chatmemory.mv.db` to wipe all history. The schema DDL (`classpath:/schema/schema-h2db.sql`) is idempotent, so `initialize-schema=always` is safe across restarts.
 
-> Endpoint defined in `section02/springai/src/main/java/com/eazybytes/springai/controller/ChatController.java`. Port `8080` is the Spring Boot default — override with `--server.port=9090` if it conflicts.
+> **Seeing memory in action:** the advisors log at DEBUG (`logging.level.org.springframework.ai.chat.client.advisor=DEBUG` in `application.properties`), so you can watch the prior turns being stitched into each prompt.
 
 ### Configuration
 
-All AI settings live in `section02/springai/src/main/resources/application.properties`:
+All settings live in `section04/springai/src/main/resources/application.properties`:
 
 ```properties
+# Model
 spring.ai.model.chat=ollama
 spring.ai.ollama.chat.options.model=llama3.2:1b
+
+# Conversation memory: file-based H2 so history survives restarts
+spring.datasource.url=jdbc:h2:file:~/chatmemory;AUTO_SERVER=true
+spring.ai.chat.memory.repository.jdbc.initialize-schema=always
+spring.ai.chat.memory.repository.jdbc.schema=classpath:/schema/schema-h2db.sql
 ```
 
-Swap `llama3.2:1b` for any other model you have pulled in Ollama (e.g. `llama3.2:3b`, `mistral`, `qwen2.5`) to experiment.
+Swap `llama3.2:1b` for any other model you have pulled in Ollama (e.g. `llama3.2:3b`, `mistral`, `qwen2.5`) — a larger model recalls facts from history far more reliably.
 
 ### Running the tests
 
 Three layers of tests are wired up:
 
-**Fast tests (default)** — unit slice (`@WebMvcTest`), integration (`@SpringBootTest` with mocked `ChatClient.Builder`), and a context-load test. No infrastructure needed.
+**Fast tests (default)** — unit slice (`@WebMvcTest`), integration (`@SpringBootTest` with a mocked `ChatClient` and isolated in-memory H2), and a context-load test. No infrastructure needed.
 
 ```bash
-cd section02/springai
+cd section04/springai
 ./mvnw test
 ```
 
-Runs in ~3 s and is safe to run in CI without Podman/Docker.
+Runs in a few seconds and is safe to run in CI without Podman/Docker.
 
-**End-to-end test (`e2e` profile)** — boots an Ollama container via Testcontainers, pulls `llama3.2:1b`, and hits `/api/chat` against the real model.
+**End-to-end test (`e2e` profile)** — boots an Ollama container via Testcontainers, pulls `llama3.2:1b`, drives `/api/chat-memory`, and asserts the conversation was persisted to (an in-memory) H2.
 
 ```bash
 # 1. Start the Podman machine and expose its socket (one-time per shell session)
