@@ -2,7 +2,7 @@
 
 A personal learning path for **Spring AI**, organized as one branch per lesson. Each branch builds on the previous one and contains a single self-contained Spring Boot project.
 
-> 👉 **You are on the `section5` branch.** *RAG*: a `ChatClient` only knows what the model was trained on. This branch makes the assistant **answer from your own documents and from the live web**: `HRPolicyLoader` ingests a PDF into a Qdrant vector store at startup; `RAGController` exposes three endpoints that show the RAG journey — manual similarity search → Spring AI's `RetrievalAugmentationAdvisor` → live web retrieval via a custom `WebSearchDocumentRetriever` backed by the Tavily API. A `PIIMaskingDocumentPostProcessor` redacts emails and phone numbers from retrieved chunks before they reach the model. Built on top of [`section4`](https://github.com/david-iaggbs/spring-ai/tree/section4) and still running entirely on a **local LLM via [Ollama](https://ollama.com)** (`llama3.2:1b` for chat, `nomic-embed-text` for embeddings).
+> 👉 **You are on the `section6` branch.** *Tool Calling*: the AI assistant can now **take real actions** — not just answer questions. `TimeTools` exposes Java methods the LLM can invoke to get the current local or zoned time. `HelpDeskTools` lets the LLM create and query JPA-backed support tickets on behalf of the authenticated user, using `ToolContext` to pass the `username` from the HTTP header into the tool without exposing it in the prompt. Built on top of [`section5`](https://github.com/david-iaggbs/spring-ai/tree/section5) and running entirely on a **local LLM via [Ollama](https://ollama.com)** (`llama3.2:1b` for chat, `nomic-embed-text` for embeddings) — no API key required.
 
 ---
 
@@ -10,39 +10,36 @@ A personal learning path for **Spring AI**, organized as one branch per lesson. 
 
 The repository uses **one branch per lesson**. Each branch contains a single Maven project under `sectionNN/<project>/` so the diff between branches shows exactly what each lesson introduces. Switch lessons with `git checkout <branch>`.
 
-### This branch — `section5`
+### This branch — `section6`
 
-**Purpose**: introduce **Retrieval-Augmented Generation (RAG)**. By default the model answers from its training data alone — it knows nothing about your company policies, your latest docs, or today's news. This branch shows how to bridge that gap: load external knowledge into a vector store, retrieve the most relevant chunks at query time, and inject them into the prompt so the model answers from *your* data.
+**Purpose**: introduce **AI Tool Calling** (also called Function Calling). The assistant built in section5 could answer from documents and the web; now it can **act** — invoking real Java methods to get live data and write to a database on behalf of the user.
 
-**What it adds on top of the [`section4`](https://github.com/david-iaggbs/spring-ai/tree/section4) baseline** — a fresh `section05/springai` module (dropping `section04/springai`):
+**What it adds on top of the [`section5`](https://github.com/david-iaggbs/spring-ai/tree/section5) baseline** — a fresh `section06/springai` module (dropping `section05/springai`):
 
-- **`rag/HRPolicyLoader.java`** — `@PostConstruct` component that reads `Eazybytes_HR_Policies.pdf` with `TikaDocumentReader`, splits it into 200-token chunks with `TokenTextSplitter`, and stores them in Qdrant at startup. Runs once per app start; the vector store persists across restarts.
+- **`tools/TimeTools.java`** — two `@Tool`-annotated methods: `getCurrentLocalTime()` (no args) and `getCurrentTime(String timeZone)` for any IANA zone. Wired as `defaultTools` on the `timeChatClient` bean so they are always available to the model.
 
-- **`rag/WebSearchDocumentRetriever.java`** — a custom `DocumentRetriever` that calls the Tavily Search API, maps each result into a Spring AI `Document` (with `title`, `url`, and relevance `score` metadata), and returns the top-N hits. Reads `TAVILY_SEARCH_API_KEY` from the environment.
+- **`tools/HelpDeskTools.java`** — two `@Tool` methods backed by JPA: `createTicket(TicketRequest, ToolContext)` persists a new `HelpDeskTicket` row and returns a confirmation string directly to the user (`returnDirect = true`); `getTicketStatus(ToolContext)` fetches all tickets for the calling user. Both receive a `ToolContext` injected at request time — the username is read from the context rather than the prompt, preventing prompt-injection attacks.
 
-- **`rag/PIIMaskingDocumentPostProcessor.java`** — a `DocumentPostProcessor` that runs regex patterns over every retrieved chunk and replaces emails with `[REDACTED_EMAIL]` and phone numbers with `[REDACTED_PHONE]` before the chunks reach the model prompt.
+- **`entity/HelpDeskTicket.java`** / **`service/HelpDeskTicketService.java`** / **`repository/HelpDeskTicketRepository.java`** — JPA entity, service, and `JpaRepository` that the tools delegate to. `HelpDeskTicket` carries `id`, `username`, `issue`, `status` (`OPEN`), `createdAt`, and `eta`.
 
-- **`rag/RandomDataLoader.java`** — a commented-out (`// @Component`) loader that seeds random sentences into Qdrant; left in the codebase for instructional reference. Uncomment `@Component` to activate it.
+- **`config/TimeChatClientConfig.java`** — minimal `ChatClient` builder: `defaultTools(timeTools)` wired at build time so every prompt automatically has access to the time tools.
 
-- **`config/WebSearchRAGChatClientConfig.java`** — builds a second named `ChatClient` bean (`webSearchRAGChatClient`) that stacks `SimpleLoggerAdvisor` + `MessageChatMemoryAdvisor` + `TokenUsageAuditAdvisor` + `RetrievalAugmentationAdvisor`. The `RetrievalAugmentationAdvisor` wires in the custom `WebSearchDocumentRetriever` so every prompt is automatically enriched with live web results.
+- **`config/HelpDeskChatClientConfig.java`** — richer builder: `defaultSystem(helpDeskSystemPromptTemplate)` + `defaultAdvisors(SimpleLoggerAdvisor, MessageChatMemoryAdvisor, TokenUsageAuditAdvisor, RetrievalAugmentationAdvisor)`. The `HelpDeskTools` bean is **not** a default tool here — it is added per-request in the controller so the controller can also supply the `ToolContext`.
 
-- **`config/ChatClientConfig.java`** — base `ChatClient` bean with `llama3.2:1b`, `TokenUsageAuditAdvisor`, and a default HR-assistant system prompt.
-
-- **`controller/RAGController.java`** — three endpoints under `/api/rag`:
+- **`controller/TimeController.java`** / **`controller/HelpDeskController.java`** — endpoints under `/api/tools`:
 
   | Endpoint | `ChatClient` | What it demonstrates |
   |----------|-------------|----------------------|
-  | `GET /api/rag/random/chat` | `chatMemoryChatClient` | Memory-only chat (manual vector search shown but commented out — compare approaches in the source) |
-  | `GET /api/rag/document/chat` | `chatMemoryChatClient` | Memory-only chat with the HR system prompt (manual similarity search commented out — activate to see document-grounded answers) |
-  | `GET /api/rag/web-search/chat` | `webSearchRAGChatClient` | Live web retrieval via `RetrievalAugmentationAdvisor` + `WebSearchDocumentRetriever` |
+  | `GET /api/tools/local-time` | `timeChatClient` | Tool registered at build time via `defaultTools`; no context needed |
+  | `GET /api/tools/help-desk` | `helpDeskChatClient` | Tool added per-request (`.tools(helpDeskTools)`) with per-request context (`.toolContext(Map.of("username", username))`) |
 
-  All three endpoints accept `username` **header** (→ `CONVERSATION_ID`) and `message` query param.
+  Both endpoints accept `username` **header** (→ `CONVERSATION_ID` for memory, `username` in `ToolContext`) and `message` query param.
 
-- **`compose.yml`** — Qdrant service (`qdrant/qdrant:latest`, ports 6333/6334). Spring Boot's Docker Compose integration starts it automatically when you run the app — no separate `docker-compose up` needed.
+- **`promptTemplates/helpDeskSystemPromptTemplate.st`** — StringTemplate system prompt that defines the helpdesk persona, tool-use policy ("check for existing tickets before creating a new one"), and response style.
 
-- **New dependencies**: `spring-ai-rag`, `spring-ai-advisors-vector-store`, `spring-ai-starter-vector-store-qdrant`, `spring-ai-tika-document-reader`, `spring-boot-docker-compose`.
+- **New dependencies**: `spring-boot-starter-data-jpa`, `lombok` (Lombok annotations on the entity).
 
-Run `git diff section4 section5` to see exactly what this lesson costs in code, config and dependencies.
+Run `git diff section5 section6` to see exactly what this lesson adds in code, config and dependencies.
 
 ### Conventions shared across all branches
 
@@ -56,7 +53,7 @@ Run `git diff section4 section5` to see exactly what this lesson costs in code, 
 
 ---
 
-## 🚀 How to Run (section05/springai)
+## 🚀 How to Run (section06/springai)
 
 ### Prerequisites
 
@@ -66,7 +63,7 @@ Run `git diff section4 section5` to see exactly what this lesson costs in code, 
 | **Maven Wrapper** | Builds and runs the app | Ships with the project (`./mvnw`) — no global install needed |
 | **Podman** (or Docker) | Runs Ollama + starts Qdrant via `compose.yml` | Tested with Podman; Docker works with the same commands |
 | **Ollama runtime** | Chat (`llama3.2:1b`) and embeddings (`nomic-embed-text`) | Run as a container (see step 1) |
-| **`TAVILY_SEARCH_API_KEY`** | `/api/rag/web-search/chat` endpoint only | Free tier at [tavily.com](https://tavily.com); skip if you only use the document chat endpoints |
+| **`TAVILY_SEARCH_API_KEY`** | `/api/rag/web-search/chat` endpoint only (carried over from section5) | Free tier at [tavily.com](https://tavily.com); not needed for the new tool endpoints |
 
 No OpenAI API key needed. Chat and embeddings both run locally via Ollama.
 
@@ -82,7 +79,7 @@ podman run -d --name ollama \
   -v ollama:/root/.ollama \
   docker.io/ollama/ollama
 
-# pull the chat model
+# pull the chat model — must support tool calling
 podman exec -it ollama ollama pull llama3.2:1b
 
 # pull the embedding model — used to vectorise the HR PDF and query text
@@ -102,13 +99,13 @@ curl http://localhost:11434/api/tags
 ### 2. Start the Spring Boot app
 
 ```bash
-cd section05/springai
+cd section06/springai
 ./mvnw spring-boot:run
 ```
 
-Spring Boot detects `compose.yml` and **starts Qdrant automatically** before the app context is created. On first run, `HRPolicyLoader` reads `Eazybytes_HR_Policies.pdf`, splits it into chunks, embeds them with `nomic-embed-text` via Ollama, and stores them in Qdrant — this takes a few seconds. Subsequent runs skip the re-ingestion (Qdrant persists its data inside the container volume while it's running; restart the container to reset it).
+Spring Boot detects `compose.yml` and **starts Qdrant automatically** before the app context is created. On first run, `HRPolicyLoader` reads `Eazybytes_HR_Policies.pdf`, splits it into chunks, embeds them with `nomic-embed-text`, and stores them in Qdrant.
 
-The app starts on `http://localhost:8080`. The H2 console is available at `http://localhost:8080/h2-console` (JDBC URL: `jdbc:h2:file:~/chatmemory`, user: `madan`, password: `12345`).
+The app starts on `http://localhost:8080`. The H2 console is available at `http://localhost:8080/h2-console` (JDBC URL: `jdbc:h2:file:~/chatmemory`, user: `madan`, password: `12345`). The `helpdesk_tickets` table is also stored in H2.
 
 > **Podman users:** point Spring Boot at the Podman socket before running:
 > ```bash
@@ -117,44 +114,43 @@ The app starts on `http://localhost:8080`. The H2 console is available at `http:
 > ./mvnw spring-boot:run
 > ```
 
-### 3. Query the RAG endpoints
+### 3. Query the tool endpoints
 
-The app exposes three new endpoints under `/api/rag`, all accepting `username` header and `message` query param:
+The new endpoints are under `/api/tools`, all accepting `username` **header** and `message` query param:
 
 | Method | URL | What happens |
 |--------|-----|--------------|
-| `GET` | `/api/rag/random/chat` | Memory-backed chat; manual vector search commented out (see source for the pattern) |
-| `GET` | `/api/rag/document/chat` | Memory-backed chat with HR system prompt; uncomment similarity search in `RAGController` to ground answers in the PDF |
-| `GET` | `/api/rag/web-search/chat` | **Full RAG**: `RetrievalAugmentationAdvisor` retrieves live web results via Tavily and injects them into the prompt automatically |
+| `GET` | `/api/tools/local-time` | Model invokes `TimeTools.getCurrentLocalTime()` or `getCurrentTime(zone)` and returns the result |
+| `GET` | `/api/tools/help-desk` | Model decides whether to call `createTicket` or `getTicketStatus`; the ticket is persisted in H2 |
 
 **With curl:**
 
 ```bash
-# Ask about the HR policy (activate manual search in RAGController to see document-grounded answers)
-curl -H "username: madan03" \
-  "http://localhost:8080/api/rag/document/chat?message=What%20is%20the%20leave%20policy%3F"
+# Ask for the current time — the model calls getCurrentLocalTime()
+curl -H "username: alice" \
+  "http://localhost:8080/api/tools/local-time?message=What%20time%20is%20it%20in%20Tokyo%3F"
 
-# Ask a live-web question — Tavily results are injected automatically into the prompt
-curl -H "username: madan03" \
-  "http://localhost:8080/api/rag/web-search/chat?message=What%20is%20the%20latest%20Java%20LTS%20version%3F"
+# Create a support ticket — the model calls createTicket() and the row appears in H2
+curl -H "username: alice" \
+  "http://localhost:8080/api/tools/help-desk?message=I%20cannot%20access%20the%20VPN%2C%20please%20create%20a%20ticket"
+
+# Check open tickets — the model calls getTicketStatus()
+curl -H "username: alice" \
+  "http://localhost:8080/api/tools/help-desk?message=What%20are%20my%20open%20tickets%3F"
 ```
 
-> **Seeing RAG in action:** advisors log at DEBUG (`logging.level.org.springframework.ai.chat.client.advisor=DEBUG` in `application.properties`), so you can watch retrieved document chunks being stitched into each prompt.
-
-> **Web-search endpoint:** set `TAVILY_SEARCH_API_KEY` in your environment before starting the app. The other two endpoints work without it.
+> **Seeing tool calling in action:** advisors log at DEBUG (`logging.level.org.springframework.ai.chat.client.advisor=DEBUG`), so you can watch the model's tool-call requests and the tool results being returned.
 
 ### Configuration
 
-All settings live in `section05/springai/src/main/resources/application.properties`:
+All settings live in `section06/springai/src/main/resources/application.properties`:
 
 ```properties
-# Model
-spring.ai.model.chat=ollama
-spring.ai.model.embedding=ollama
+# Model — must support tool calling
 spring.ai.ollama.chat.options.model=llama3.2:1b
 spring.ai.ollama.embedding.options.model=nomic-embed-text
 
-# Conversation memory: file-based H2 so history survives restarts
+# Conversation memory + helpdesk tickets: file-based H2
 spring.datasource.url=jdbc:h2:file:~/chatmemory;AUTO_SERVER=true
 spring.ai.chat.memory.repository.jdbc.initialize-schema=always
 spring.ai.chat.memory.repository.jdbc.schema=classpath:/schema/schema-h2db.sql
@@ -166,16 +162,21 @@ spring.ai.vectorstore.qdrant.port=6334
 spring.ai.vectorstore.qdrant.collection-name=eazybytes
 ```
 
-Swap `llama3.2:1b` for any other chat model you have pulled in Ollama (e.g. `llama3.2:3b`, `mistral`). Swap `nomic-embed-text` for any Ollama embedding model — just make sure it's pulled first.
+Swap `llama3.2:1b` for any tool-capable model you have pulled in Ollama (e.g. `llama3.2:3b`, `mistral-nemo`).
 
 ### Running the tests
 
 ```bash
-cd section05/springai
+cd section06/springai
+
+# Unit + integration tests (no Ollama or Podman needed)
 ./mvnw test
+
+# Full pyramid including E2E tests (requires Podman/Docker to start Testcontainers)
+./mvnw test -Pe2e
 ```
 
-Requires Ollama running at `http://localhost:11434` (with both `llama3.2:1b` and `nomic-embed-text` pulled) and Podman/Docker running so Spring Boot can start Qdrant via `compose.yml`.
+The `-Pe2e` profile removes the `@Tag("e2e")` exclusion so `ToolsControllerOllamaIT` runs — it spins up Ollama and Qdrant in containers, pulls both models, and exercises the tool endpoints end-to-end.
 
 ---
 
