@@ -14,7 +14,7 @@ public class ChatClientConfig {
 
     @Bean
     public ChatClient chatClient(ChatClient.Builder chatClientBuilder) {
-        ChatOptions chatOptions = ChatOptions.builder().model("gpt-4.1-mini")
+        ChatOptions chatOptions = ChatOptions.builder().model("llama3.2:1b")
                 .temperature(0.8).build();
 
         return chatClientBuilder

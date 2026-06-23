@@ -2,7 +2,7 @@
 
 A personal learning path for **Spring AI**, organized as one branch per lesson. Each branch builds on the previous one and contains a single self-contained Spring Boot project.
 
-> 👉 **You are on the `section5` branch.** *RAG*: a `ChatClient` only knows what the model was trained on. This branch makes the assistant **answer from your own documents and from the live web**: `HRPolicyLoader` ingests a PDF into a Qdrant vector store at startup; `RAGController` exposes three endpoints that show the RAG journey — manual similarity search → Spring AI's `RetrievalAugmentationAdvisor` → live web retrieval via a custom `WebSearchDocumentRetriever` backed by the Tavily API. A `PIIMaskingDocumentPostProcessor` redacts emails and phone numbers from retrieved chunks before they reach the model. Built on top of [`section4`](https://github.com/david-iaggbs/spring-ai/tree/section4) and switched to **OpenAI** (`gpt-4.1-mini`).
+> 👉 **You are on the `section5` branch.** *RAG*: a `ChatClient` only knows what the model was trained on. This branch makes the assistant **answer from your own documents and from the live web**: `HRPolicyLoader` ingests a PDF into a Qdrant vector store at startup; `RAGController` exposes three endpoints that show the RAG journey — manual similarity search → Spring AI's `RetrievalAugmentationAdvisor` → live web retrieval via a custom `WebSearchDocumentRetriever` backed by the Tavily API. A `PIIMaskingDocumentPostProcessor` redacts emails and phone numbers from retrieved chunks before they reach the model. Built on top of [`section4`](https://github.com/david-iaggbs/spring-ai/tree/section4) and still running entirely on a **local LLM via [Ollama](https://ollama.com)** (`llama3.2:1b` for chat, `nomic-embed-text` for embeddings).
 
 ---
 
@@ -40,9 +40,7 @@ The repository uses **one branch per lesson**. Each branch contains a single Mav
 
 - **`compose.yml`** — Qdrant service (`qdrant/qdrant:latest`, ports 6333/6334). Spring Boot's Docker Compose integration starts it automatically when you run the app — no separate `docker-compose up` needed.
 
-- **New dependencies**: `spring-ai-rag`, `spring-ai-advisors-vector-store`, `spring-ai-starter-vector-store-qdrant`, `spring-ai-tika-document-reader`, `spring-boot-docker-compose`.
-
-- **Switch from Ollama to OpenAI**: `pom.xml` now declares `spring-ai-starter-model-openai`; the model is `gpt-4.1-mini` configured in `ChatClientConfig`. Set `OPENAI_API_KEY` in the environment before running.
+- **New dependencies**: `spring-ai-rag`, `spring-ai-advisors-vector-store`, `spring-ai-starter-vector-store-qdrant`, `spring-ai-tika-document-reader`, `spring-boot-docker-compose`. Still on `spring-ai-starter-model-ollama` — no API keys needed for the chat/embedding models.
 
 Run `git diff section4 section5` to see exactly what this lesson costs in code, config and dependencies.
 
@@ -54,7 +52,7 @@ Run `git diff section4 section5` to see exactly what this lesson costs in code, 
 - **Package root**: `com.eazybytes.<project>` (e.g. `com.eazybytes.springai`).
 - **REST base path**: `/api` (class-level `@RequestMapping("/api")`), one controller per lesson concept.
 - **Default port**: `8080` (override with `--server.port=<port>` at runtime).
-- **AI provider**: section0–section4 use **Ollama** (local, no API key); section5 onward use **OpenAI** (`OPENAI_API_KEY` required).
+- **AI provider**: all branches use **Ollama** (local, no API key for chat/embeddings). The web-search RAG endpoint additionally requires `TAVILY_SEARCH_API_KEY`.
 
 ---
 
@@ -64,38 +62,58 @@ Run `git diff section4 section5` to see exactly what this lesson costs in code, 
 
 | Tool | Why | Notes |
 |------|-----|-------|
-| **JDK 21+** | Spring Boot 3.5 requires Java 21 | Temurin / Zulu / Oracle |
+| **JDK 21+** | Spring Boot 3.5 requires Java 21 (`<java.version>21</java.version>`) | Temurin / Zulu / Oracle |
 | **Maven Wrapper** | Builds and runs the app | Ships with the project (`./mvnw`) — no global install needed |
-| **Docker** (or Podman) | Qdrant container | Spring Boot starts it automatically via `compose.yml` |
-| **`OPENAI_API_KEY`** | OpenAI chat + embedding calls | `gpt-4.1-mini` for chat; `text-embedding-3-small` for vector search |
+| **Podman** (or Docker) | Qdrant container + Ollama container | Qdrant starts automatically via `compose.yml`; Ollama started manually |
+| **Ollama runtime** | Chat (`llama3.2:1b`) and embeddings (`nomic-embed-text`) | Run as a container (see step 1) |
 | **`TAVILY_SEARCH_API_KEY`** | Web-search RAG endpoint only | Free tier at [tavily.com](https://tavily.com); skip if you only use the document chat endpoint |
 
-### 1. Set environment variables
+No OpenAI API key needed. Chat and embeddings both run locally via Ollama.
+
+### 1. Start Ollama and pull required models
 
 ```bash
-export OPENAI_API_KEY=sk-...
+# create a named volume so models persist across restarts
+podman volume create ollama
+
+# run the Ollama server
+podman run -d --name ollama \
+  -p 11434:11434 \
+  -v ollama:/root/.ollama \
+  docker.io/ollama/ollama
+
+# chat model
+podman exec -it ollama ollama pull llama3.2:1b
+
+# embedding model — used by Qdrant to vectorise the HR PDF and query text
+podman exec -it ollama ollama pull nomic-embed-text
+```
+
+### 2. (Optional) Set Tavily API key for the web-search endpoint
+
+```bash
 export TAVILY_SEARCH_API_KEY=tvly-...   # only needed for /api/rag/web-search/chat
 ```
 
-### 2. Start the Spring Boot app
+### 4. Start the Spring Boot app
 
 ```bash
 cd section05/springai
 ./mvnw spring-boot:run
 ```
 
-Spring Boot detects `compose.yml` and **starts Qdrant automatically** before the app context is created. On first run, `HRPolicyLoader` reads `Eazybytes_HR_Policies.pdf`, splits it into chunks, and stores them in Qdrant — this takes a few seconds. Subsequent runs skip the re-ingestion (Qdrant persists its data inside the container volume while it's running; restart the container to reset it).
+Spring Boot detects `compose.yml` and **starts Qdrant automatically** before the app context is created. On first run, `HRPolicyLoader` reads `Eazybytes_HR_Policies.pdf`, splits it into chunks, embeds them with `nomic-embed-text` via Ollama, and stores them in Qdrant — this takes a few seconds. Subsequent runs skip the re-ingestion (Qdrant persists its data inside the container volume while it's running; restart the container to reset it).
 
 The app starts on `http://localhost:8080`. The H2 console is available at `http://localhost:8080/h2-console` (JDBC URL: `jdbc:h2:file:~/chatmemory`, user: `madan`, password: `12345`).
 
-> If you use Podman, point Spring Boot at the Podman socket:
+> **Podman users:** point Spring Boot at the Podman socket before running:
 > ```bash
 > podman machine start
 > export DOCKER_HOST="unix://$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}')"
 > ./mvnw spring-boot:run
 > ```
 
-### 3. Query the RAG endpoints
+### 5. Query the RAG endpoints
 
 The app exposes three new endpoints under `/api/rag`, all accepting `username` header and `message` query param:
 
@@ -124,8 +142,11 @@ curl -H "username: madan03" \
 All settings live in `section05/springai/src/main/resources/application.properties`:
 
 ```properties
-# AI provider
-spring.ai.openai.api-key=${OPENAI_API_KEY}
+# AI provider — Ollama (chat + embeddings, no API key)
+spring.ai.model.chat=ollama
+spring.ai.model.embedding=ollama
+spring.ai.ollama.chat.options.model=llama3.2:1b
+spring.ai.ollama.embedding.options.model=nomic-embed-text
 
 # Conversation memory: file-based H2
 spring.datasource.url=jdbc:h2:file:~/chatmemory;AUTO_SERVER=true
@@ -139,7 +160,7 @@ spring.ai.vectorstore.qdrant.port=6334
 spring.ai.vectorstore.qdrant.collection-name=eazybytes
 ```
 
-To use a different OpenAI embedding model, uncomment `spring.ai.openai.embedding.options.model=text-embedding-3-small` in `application.properties`.
+Swap `llama3.2:1b` for any other chat model you have pulled in Ollama (e.g. `llama3.2:3b`, `mistral`). Swap `nomic-embed-text` for any Ollama embedding model — just make sure it's pulled first.
 
 ### Running the tests
 
@@ -148,7 +169,7 @@ cd section05/springai
 ./mvnw test
 ```
 
-The default test is a context-load check (`SpringAiApplicationTests`). It requires `OPENAI_API_KEY` to be set and Docker/Podman running (Spring Boot's Docker Compose integration starts Qdrant automatically, including during tests).
+The default test is a context-load check (`SpringAiApplicationTests`). It requires Ollama running at `http://localhost:11434` (with `llama3.2:1b` and `nomic-embed-text` pulled) and Docker/Podman running (Spring Boot's Docker Compose integration starts Qdrant automatically, including during tests). No API keys needed.
 
 ---
 
