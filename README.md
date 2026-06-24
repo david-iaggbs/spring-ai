@@ -16,21 +16,21 @@ The repository uses **one branch per lesson**. Each branch contains a single Mav
 
 **What it adds on top of the [`section5`](https://github.com/david-iaggbs/spring-ai/tree/section5) baseline** — a fresh `section06/springai` module (dropping `section05/springai`):
 
-- **`tools/TimeTools.java`** — two `@Tool`-annotated methods: `getCurrentLocalTime()` (no args) and `getCurrentTime(String timeZone)` for any IANA zone. Wired as `defaultTools` on the `timeChatClient` bean so they are always available to the model.
+- **`tools/TimeTools.java`** — two `@Tool`-annotated methods: `getCurrentLocalTime()` (no args, returns the server's local time) and `getCurrentTime(String timeZone)` (accepts any IANA zone ID). Registered as `defaultTools` on the `timeChatClient` bean so they are always available to the model without per-request wiring.
 
-- **`tools/HelpDeskTools.java`** — two `@Tool` methods backed by JPA: `createTicket(TicketRequest, ToolContext)` persists a new `HelpDeskTicket` row and returns a confirmation string directly to the user (`returnDirect = true`); `getTicketStatus(ToolContext)` fetches all tickets for the calling user. Both receive a `ToolContext` injected at request time — the username is read from the context rather than the prompt, preventing prompt-injection attacks.
+- **`tools/HelpDeskTools.java`** — two `@Tool` methods backed by JPA: `createTicket(TicketRequest, ToolContext)` persists a new `HelpDeskTicket` row and returns a confirmation string directly to the user (`returnDirect = true`); `getTicketStatus(ToolContext)` fetches all tickets for the calling user. Both receive a `ToolContext` injected at request time — the `username` is read from the context map rather than from the prompt, preventing prompt-injection attacks.
 
-- **`entity/HelpDeskTicket.java`** / **`service/HelpDeskTicketService.java`** / **`repository/HelpDeskTicketRepository.java`** — JPA entity, service, and `JpaRepository` that the tools delegate to. `HelpDeskTicket` carries `id`, `username`, `issue`, `status` (`OPEN`), `createdAt`, and `eta`.
+- **`entity/HelpDeskTicket.java`** / **`service/HelpDeskTicketService.java`** / **`repository/HelpDeskTicketRepository.java`** — Lombok-annotated JPA entity, service, and `JpaRepository` that the tools delegate to. `HelpDeskTicket` carries `id`, `username`, `issue`, `status`, `createdAt`, and `eta`.
 
-- **`config/TimeChatClientConfig.java`** — minimal `ChatClient` builder: `defaultTools(timeTools)` wired at build time so every prompt automatically has access to the time tools.
+- **`config/TimeChatClientConfig.java`** — builds the `timeChatClient` bean with `defaultTools(timeTools)` + `SimpleLoggerAdvisor` + `MessageChatMemoryAdvisor` + `TokenUsageAuditAdvisor`. Every prompt on this client automatically has access to the time tools.
 
-- **`config/HelpDeskChatClientConfig.java`** — richer builder: `defaultSystem(helpDeskSystemPromptTemplate)` + `defaultAdvisors(SimpleLoggerAdvisor, MessageChatMemoryAdvisor, TokenUsageAuditAdvisor, RetrievalAugmentationAdvisor)`. The `HelpDeskTools` bean is **not** a default tool here — it is added per-request in the controller so the controller can also supply the `ToolContext`.
+- **`config/HelpDeskChatClientConfig.java`** — builds the `helpDeskChatClient` bean with `defaultSystem(helpDeskSystemPromptTemplate)` + `defaultTools(timeTools)` + `defaultAdvisors(SimpleLoggerAdvisor, MessageChatMemoryAdvisor, TokenUsageAuditAdvisor)`. The `HelpDeskTools` bean is **not** a default tool here — it is added per-request in the controller so the controller can also supply the `ToolContext`. A `DefaultToolExecutionExceptionProcessor` bean is included (commented out) for instructional reference — uncomment it to have Spring AI turn tool exceptions into model-visible error messages instead of propagating them.
 
 - **`controller/TimeController.java`** / **`controller/HelpDeskController.java`** — endpoints under `/api/tools`:
 
   | Endpoint | `ChatClient` | What it demonstrates |
   |----------|-------------|----------------------|
-  | `GET /api/tools/local-time` | `timeChatClient` | Tool registered at build time via `defaultTools`; no context needed |
+  | `GET /api/tools/local-time` | `timeChatClient` | Tool registered at build time via `defaultTools`; no per-request context needed |
   | `GET /api/tools/help-desk` | `helpDeskChatClient` | Tool added per-request (`.tools(helpDeskTools)`) with per-request context (`.toolContext(Map.of("username", username))`) |
 
   Both endpoints accept `username` **header** (→ `CONVERSATION_ID` for memory, `username` in `ToolContext`) and `message` query param.
@@ -103,9 +103,9 @@ cd section06/springai
 ./mvnw spring-boot:run
 ```
 
-Spring Boot detects `compose.yml` and **starts Qdrant automatically** before the app context is created. On first run, `HRPolicyLoader` reads `Eazybytes_HR_Policies.pdf`, splits it into chunks, embeds them with `nomic-embed-text`, and stores them in Qdrant.
+Spring Boot detects `compose.yml` and **starts Qdrant automatically** before the app context is created. On first run, `HRPolicyLoader` reads `Eazybytes_HR_Policies.pdf`, splits it into chunks, embeds them with `nomic-embed-text` via Ollama, and stores them in Qdrant — this takes a few seconds. Subsequent runs skip the re-ingestion (Qdrant persists its data inside the container volume while it's running; restart the container to reset it).
 
-The app starts on `http://localhost:8080`. The H2 console is available at `http://localhost:8080/h2-console` (JDBC URL: `jdbc:h2:file:~/chatmemory`, user: `madan`, password: `12345`). The `helpdesk_tickets` table is also stored in H2.
+The app starts on `http://localhost:8080`. The H2 console is available at `http://localhost:8080/h2-console` (JDBC URL: `jdbc:h2:file:~/chatmemory`, user: `madan`, password: `12345`). Chat memory and `helpdesk_tickets` are both stored in this H2 database.
 
 > **Podman users:** point Spring Boot at the Podman socket before running:
 > ```bash
@@ -121,12 +121,16 @@ The new endpoints are under `/api/tools`, all accepting `username` **header** an
 | Method | URL | What happens |
 |--------|-----|--------------|
 | `GET` | `/api/tools/local-time` | Model invokes `TimeTools.getCurrentLocalTime()` or `getCurrentTime(zone)` and returns the result |
-| `GET` | `/api/tools/help-desk` | Model decides whether to call `createTicket` or `getTicketStatus`; the ticket is persisted in H2 |
+| `GET` | `/api/tools/help-desk` | Model decides whether to call `createTicket` or `getTicketStatus`; tickets are persisted in H2 |
 
 **With curl:**
 
 ```bash
 # Ask for the current time — the model calls getCurrentLocalTime()
+curl -H "username: alice" \
+  "http://localhost:8080/api/tools/local-time?message=What%20time%20is%20it%3F"
+
+# Ask for a specific timezone — the model calls getCurrentTime("Asia/Tokyo")
 curl -H "username: alice" \
   "http://localhost:8080/api/tools/local-time?message=What%20time%20is%20it%20in%20Tokyo%3F"
 
@@ -139,7 +143,9 @@ curl -H "username: alice" \
   "http://localhost:8080/api/tools/help-desk?message=What%20are%20my%20open%20tickets%3F"
 ```
 
-> **Seeing tool calling in action:** advisors log at DEBUG (`logging.level.org.springframework.ai.chat.client.advisor=DEBUG`), so you can watch the model's tool-call requests and the tool results being returned.
+> **Seeing tool calling in action:** advisors log at DEBUG (`logging.level.org.springframework.ai.chat.client.advisor=DEBUG` in `application.properties`), so you can watch the model's tool-call requests and the tool results being returned.
+
+> **createTicket and returnDirect:** when `returnDirect = true` the tool result string is returned straight to the HTTP response without a second model round-trip — you'll see exactly what `HelpDeskTools.createTicket()` returned, not a paraphrase.
 
 ### Configuration
 
@@ -150,7 +156,7 @@ All settings live in `section06/springai/src/main/resources/application.properti
 spring.ai.ollama.chat.options.model=llama3.2:1b
 spring.ai.ollama.embedding.options.model=nomic-embed-text
 
-# Conversation memory + helpdesk tickets: file-based H2
+# Conversation memory + helpdesk tickets: file-based H2 so history survives restarts
 spring.datasource.url=jdbc:h2:file:~/chatmemory;AUTO_SERVER=true
 spring.ai.chat.memory.repository.jdbc.initialize-schema=always
 spring.ai.chat.memory.repository.jdbc.schema=classpath:/schema/schema-h2db.sql
@@ -169,14 +175,25 @@ Swap `llama3.2:1b` for any tool-capable model you have pulled in Ollama (e.g. `l
 ```bash
 cd section06/springai
 
-# Unit + integration tests (no Ollama or Podman needed)
+# Unit + integration tests (no Ollama or Podman needed — AI and Qdrant are mocked)
 ./mvnw test
 
-# Full pyramid including E2E tests (requires Podman/Docker to start Testcontainers)
+# Full pyramid including E2E tests (requires Podman/Docker — Testcontainers starts Ollama + Qdrant)
 ./mvnw test -Pe2e
 ```
 
-The `-Pe2e` profile removes the `@Tag("e2e")` exclusion so `ToolsControllerOllamaIT` runs — it spins up Ollama and Qdrant in containers, pulls both models, and exercises the tool endpoints end-to-end.
+The `-Pe2e` profile removes the `@Tag("e2e")` exclusion so `ToolsControllerOllamaIT` runs — it spins up `ollama/ollama:latest` and `qdrant/qdrant:latest` in containers, pulls both models, and exercises the tool endpoints end-to-end.
+
+```bash
+# Podman: forward the socket before running E2E tests
+ssh -i ~/.local/share/containers/podman/machine/machine -p <port> \
+  -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null \
+  -fN -L /tmp/tc-podman.sock:/run/user/501/podman/podman.sock core@127.0.0.1
+
+export DOCKER_HOST=unix:///tmp/tc-podman.sock TESTCONTAINERS_RYUK_DISABLED=true
+JAVA_HOME=/Library/Java/JavaVirtualMachines/amazon-corretto-26.jdk/Contents/Home \
+  ./mvnw test -Pe2e
+```
 
 ---
 
