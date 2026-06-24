@@ -2,9 +2,11 @@ package com.eazybytes.springai;
 
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.ollama.OllamaContainer;
@@ -37,6 +39,9 @@ class SpringAiApplicationTests {
 	@ServiceConnection
 	static QdrantContainer qdrant =
 			new QdrantContainer(DockerImageName.parse("qdrant/qdrant:latest"));
+
+	@MockitoBean(name = "webSearchRAGChatClient")
+	ChatClient webSearchChatClient;
 
 	@Test
 	void contextLoads() {
