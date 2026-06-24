@@ -6,6 +6,46 @@ Welcome to the official GitHub repository for the **Spring AI Course**. This cou
 
 Below are some carefully curated reference links and tools used throughout the course. Bookmark this information for quick access during development and exploration.
 
+## Branch Lesson Narrative: section7
+
+Purpose:
+Bridge section06 local tool-calling into section07 MCP contract usage by exposing one helpdesk capability through the `section07/mcpserverbridge` server module.
+
+Bridge framing from section06 to section07:
+In section06, tools are called locally inside the same app boundary. In this section7 lesson, the same helpdesk domain is exposed as an MCP server contract so it can be consumed through MCP patterns in the next section07 transport-focused examples.
+
+Prerequisites:
+
+- JDK 21 available in your terminal (`java -version` should report 21).
+- Maven Wrapper executable available in the module folder.
+- Previous lesson reference branch: `section6`.
+- Current lesson branch: `section7`.
+
+Explicit lesson delta from previous branch:
+
+```bash
+git diff section6 section7
+```
+
+Run steps (`section07/mcpserverbridge`):
+
+```bash
+cd section07/mcpserverbridge
+./mvnw spring-boot:run
+```
+
+Verification steps (`section07/mcpserverbridge`):
+
+```bash
+cd section07/mcpserverbridge
+./mvnw test
+```
+
+Expected verification outcome:
+
+- `McpserverBridgeApplicationTests` passes.
+- The module starts in non-web mode for MCP server usage (`spring.main.web-application-type=none`).
+
 ---
 
 ## 📘 Official Documentation
