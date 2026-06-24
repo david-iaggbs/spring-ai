@@ -3,7 +3,6 @@ package com.eazybytes.springai;
 import com.eazybytes.springai.model.TicketRequest;
 import com.eazybytes.springai.service.HelpDeskTicketService;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClient;
@@ -112,24 +111,4 @@ class ToolsControllerOllamaIT {
         assertThat(messages).isNotEmpty();
     }
 
-    @Test
-    @Disabled("llama3.2:1b is too small to reliably recall context across turns")
-    void model_recalls_context_in_second_turn() throws Exception {
-        String username = "recalluser";
-
-        mvc.perform(get("/api/tools/local-time")
-                        .header("username", username)
-                        .param("message", "My name is Alice and I have a printer issue"))
-                .andExpect(status().isOk());
-
-        String response = mvc.perform(get("/api/tools/local-time")
-                        .header("username", username)
-                        .param("message", "What issue did I mention earlier?"))
-                .andExpect(status().isOk())
-                .andReturn()
-                .getResponse()
-                .getContentAsString();
-
-        assertThat(response).containsIgnoringCase("printer");
-    }
 }
