@@ -161,7 +161,13 @@
 						<groupId>org.apache.maven.plugins</groupId>
 						<artifactId>maven-surefire-plugin</artifactId>
 						<configuration>
-							<excludedGroups/>
+							<excludedGroups combine.self="override"/>
+							<groups>e2e</groups>
+							<includes>
+								<include>**/*Test.java</include>
+								<include>**/*Tests.java</include>
+								<include>**/*IT.java</include>
+							</includes>
 						</configuration>
 					</plugin>
 				</plugins>

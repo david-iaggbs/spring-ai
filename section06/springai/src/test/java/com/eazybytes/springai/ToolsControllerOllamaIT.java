@@ -35,7 +35,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "spring.docker.compose.enabled=false",
         "spring.ai.ollama.chat.options.model=" + ToolsControllerOllamaIT.CHAT_MODEL,
         "spring.ai.ollama.embedding.options.model=" + ToolsControllerOllamaIT.EMBED_MODEL,
-        "spring.ai.ollama.init.pull-model-strategy=never",
+        "spring.ai.ollama.init.pull-model-strategy=when_missing",
         "spring.datasource.url=jdbc:h2:mem:chatmemory-tools-e2e;DB_CLOSE_DELAY=-1",
         "spring.datasource.driver-class-name=org.h2.Driver",
         "spring.jpa.hibernate.ddl-auto=create-drop"
