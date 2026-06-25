@@ -6,6 +6,60 @@ Welcome to the official GitHub repository for the **Spring AI Course**. This cou
 
 Below are some carefully curated reference links and tools used throughout the course. Bookmark this information for quick access during development and exploration.
 
+## Branch Lesson Narrative: section8
+
+Purpose:
+Move from building AI features to making AI answers safer and production-ready by adding self-evaluation and retry behavior through the `section08/springai` module.
+
+Bridge framing from section07 to section08:
+In section07, the focus is decoupling tool execution via the Model Context Protocol (MCP). In this section8 lesson, the emphasis shifts to response quality and governance: the application now fact-checks its own answers and recovers gracefully when an answer fails evaluation.
+
+Prerequisites:
+
+- JDK 21 available in your terminal (`java -version` should report 21).
+- Maven Wrapper executable available in the module folder.
+- A valid `OPENAI_API_KEY` exported in your environment.
+- Previous lesson reference branch: `section7`.
+- Current lesson branch: `section8`.
+
+Explicit lesson delta from previous branch:
+
+```bash
+git diff section7 section8
+```
+
+Run steps (`section08/springai`):
+
+```bash
+cd section08/springai
+./mvnw spring-boot:run
+```
+
+Try the endpoints:
+
+```bash
+# Baseline chat
+curl "http://localhost:8080/api/chat?message=How many paid leave days do I get?"
+
+# HR-policy prompt stuffing
+curl "http://localhost:8080/api/prompt-stuffing?message=How many paid leave days do I get?"
+
+# Self-evaluating chat with fact-checking, retry and recover
+curl "http://localhost:8080/api/evaluate/chat?message=How many paid leave days do I get?"
+```
+
+Verification steps (`section08/springai`):
+
+```bash
+cd section08/springai
+./mvnw test
+```
+
+Expected verification outcome:
+
+- `SpringaiApplicationTests` passes.
+- The self-evaluating endpoint validates answers with `FactCheckingEvaluator`, retries on `InvalidAnswerException`, and falls back to a safe recovery message after repeated failures.
+
 ---
 
 ## 📘 Official Documentation
