@@ -1,65 +1,92 @@
 # Lesson 9 from Section09 - Phase 3 Execution
 
-Date: 2026-06-25
+Date: 2026-06-26
 Scope: section09 only
 
-## Step 3.1 - Narrative bridge (Lesson 8 -> Lesson 9 -> Lesson 10)
+## Step 3.1 - Runtime strategy decision
 
-- Lesson 8 establishes the base chat flow in Spring AI: prompt handling, controller wiring, and predictable local development behavior.
-- Lesson 9 (this section09 scope) expands that foundation into practical AI application patterns already present in the codebase:
-  - chat configuration variants (`ChatClientConfig`, memory/time/help-desk/web-search RAG configs)
-  - endpoint-focused controllers (`ChatController`, `RAGController`, `HelpDeskController`, `StreamController`)
-  - domain workflow with tools and persistence (`HelpDeskTools`, `HelpDeskTicketService`, repository/entity)
-  - reliability and observability enablers (`TokenUsageAuditAdvisor`, OpenTelemetry exporter config)
-- Lesson 10 should naturally continue from Lesson 9 by hardening for production-like delivery: stricter guardrails, deployment/runtime standardization, repeatable performance checks, and operational runbooks.
+Strategy selected: keep [section09/springai/compose.yml](section09/springai/compose.yml) unchanged and require an external Ollama runtime.
 
-## Step 3.2 - Quality gates and local Ollama-on-Podman E2E baseline
+Reasoning:
+- Lowest-risk path for this branch: no compose topology change.
+- Aligns with [section09/springai/src/main/resources/application.properties](section09/springai/src/main/resources/application.properties), which already targets `spring.ai.ollama.base-url=http://localhost:11434`.
+- Keeps existing observability/vector store services in compose focused and stable.
 
-### Quality gates (local)
+External Ollama prerequisite (mandatory):
+1. Install and start Ollama locally.
+2. Ensure the API is reachable:
+```bash
+curl -fsS http://localhost:11434/api/tags
+```
+3. Pull the model used by this section:
+```bash
+ollama pull llama3.2:1b
+```
+4. Verify model availability:
+```bash
+ollama list | grep "llama3.2:1b"
+```
 
-1. Build gate
-- Command: `./section09/springai/mvnw -f section09/springai/pom.xml -q -DskipTests compile`
-- Pass criteria: exit code 0.
+## Step 3.2 - Ollama-first setup and smoke flow
 
-2. Test gate
-- Command: `./section09/springai/mvnw -f section09/springai/pom.xml -q test`
-- Pass criteria: all tests pass.
+From repo root:
 
-3. App startup gate
-- Command: `podman compose -f section09/springai/compose.yml up -d`
-- Pass criteria: application and supporting services are healthy and reachable.
+1. Start supporting local infra:
+```bash
+podman compose -f section09/springai/compose.yml up -d
+```
 
-4. Functional API gate
-- Command example: `curl -sS http://localhost:8080/` (replace with lesson9 endpoint contract in use)
-- Pass criteria: HTTP success and valid response payload.
+2. Compile and run tests quickly:
+```bash
+./section09/springai/mvnw -f section09/springai/pom.xml -q -DskipTests compile
+./section09/springai/mvnw -f section09/springai/pom.xml -q test -DskipITs
+```
 
-5. Observability gate
-- Check that token usage audit advisor and telemetry export path are active in logs/config.
-- Pass criteria: expected advisor/telemetry signals appear without runtime errors.
+3. Start the Spring AI app:
+```bash
+cd section09/springai
+./mvnw -q spring-boot:run
+```
 
-### Ollama-on-Podman E2E baseline (minimal)
+4. Smoke test chat endpoint:
+```bash
+curl -fsS -o /tmp/chat.out "http://localhost:8080/api/chat?message=hello"
+cat /tmp/chat.out
+```
 
-- Runtime baseline assumptions:
-  - Podman is installed and running.
-  - Ollama container/service is available through the local compose stack or equivalent local route.
-  - Spring AI app resolves the Ollama endpoint from local config.
+5. Smoke test prompt stuffing endpoint:
+```bash
+curl -fsS -o /tmp/prompt-stuffing.out "http://localhost:8080/api/prompt-stuffing?message=What%20is%20the%20leave%20policy%3F"
+cat /tmp/prompt-stuffing.out
+```
 
-- Baseline E2E flow:
-  1. Start stack with Podman compose from `section09/springai/compose.yml`.
-  2. Start or verify the Spring AI app process.
-  3. Send one deterministic prompt to a lesson9 endpoint.
-  4. Verify response body is non-empty and semantically valid for the endpoint.
-  5. Verify no critical errors in logs and advisor telemetry signals are present.
+Pass criteria:
+- `curl http://localhost:11434/api/tags` returns HTTP 200.
+- Both endpoint calls return HTTP 200 and non-empty payloads.
+- No startup/runtime errors in the Spring app logs.
 
-- Baseline evidence to capture per run:
-  - command exit codes
-  - endpoint response sample
-  - timestamped log snippet for advisor/telemetry activity
+## Step 3.3 - Command and document consistency checks
 
-## Step 3.3 - Artifact consistency checks
+Checks to run when updating this phase document:
 
-Consistency checks for this phase document:
-- Must include the bridge terms: Lesson 8, Lesson 9, Lesson 10.
-- Must include quality gate definitions.
-- Must include Ollama + Podman + E2E baseline language.
-- Must remain under `section09` path only.
+1. Verify Ollama model in docs matches app config:
+```bash
+grep -n "llama3.2:1b" section09/docs/lesson9-phase3-execution.md
+grep -n "spring.ai.ollama.chat.options.model" section09/springai/src/main/resources/application.properties
+```
+
+2. Verify docs explicitly state external Ollama prerequisite:
+```bash
+grep -n "external Ollama runtime" section09/docs/lesson9-phase3-execution.md
+```
+
+3. Verify compose scope remains supporting services (no app/ollama assumptions):
+```bash
+grep -n "services:" section09/springai/compose.yml
+```
+
+## Narrative bridge (Lesson 8 -> Lesson 9 -> Lesson 10)
+
+- Lesson 8 establishes core chat flow and local execution.
+- Lesson 9 applies those foundations to multi-controller/tool/advisor patterns with Ollama as chat provider.
+- Lesson 10 can build on this by hardening deployment/runtime operations and production guardrails.
