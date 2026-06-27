@@ -1,10 +1,37 @@
 # From Java Dev to AI Engineer: Spring AI Fast Track
 
-## 🌱 Spring AI Course – Resources & Reference Links
+## 🌱 Course Landing Branch
 
-Welcome to the official GitHub repository for the **Spring AI Course**. This course helps you build intelligent applications using the Spring AI framework and integrate powerful LLMs like OpenAI into your Spring Boot apps.
+This repository is the companion for a hands-on Spring AI learning path.
+The `main` branch is a landing branch for orientation and navigation, not the place where all runnable lesson code lives.
 
-Below are some carefully curated reference links and tools used throughout the course. Bookmark this information for quick access during development and exploration.
+Use this page to understand the course scope, follow the branch progression, and find the supporting resources used across lessons.
+
+## What You Will Build with Spring AI
+
+Spring AI gives Spring developers a consistent application layer for working with chat models, embeddings, vector stores, memory, tools, MCP integrations, and observability patterns.
+
+In this course, the focus is practical agentic application development: building apps that can retrieve context (RAG), remember conversation state, and call external capabilities through clear interfaces.
+It does not position this repository as a production-ready autonomous multi-agent platform.
+
+## Start Here: Branch Learning Path
+
+Start from `section0`, then move forward branch by branch.
+
+| Branch | Focus |
+| --- | --- |
+| `section0` | Baseline starting point and first setup flow |
+| `section1` | Provider-first examples (OpenAI, Ollama, Bedrock, Docker model runtimes) |
+| `section2` | Canonical Spring AI app structure and core chat flow |
+| `section4` | Prompting, streaming, structured output, and chat memory |
+| `section5` | RAG workflows with embeddings and vector stores |
+| `section6` | Advanced Spring AI patterns and integrations |
+| `section7` | MCP client/server patterns and tool connectivity |
+| `section8` | Evaluation and quality validation for AI features |
+| `section9` | Integrated patterns with observability and monitoring |
+| `section10` | Multimodal topics (in this repo folder naming may appear as `section_10`) |
+
+If you only need reference links and tools, continue with the sections below.
 
 ---
 
